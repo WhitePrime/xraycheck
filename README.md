@@ -1,0 +1,95 @@
+# xraycheck - проверка VLESS-ключей (end-to-end)
+
+Скрипт загружает список VLESS-ключей по URL и выполняет **end-to-end** проверку каждого ключа:
+
+1. Запускает локальный прокси (xray) с этим ключом (SOCKS на 127.0.0.1).
+2. Делает HTTP(S)-запрос к тестовому URL **через прокси**.
+3. По ответу (статус, время, при необходимости несколько URL и повторные запросы) ключ считается рабочим или мёртвым.
+
+Рабочие ключи сохраняются в `available.txt` (без даты в имени). При запуске через Docker — в `white-list_available.txt`.
+
+## Требования
+
+- **Python 3.8+**
+- **Xray-core** - при первом запуске, если xray не найден в PATH и не задан `XRAY_PATH`, скрипт **автоматически скачает** нужную сборку с [GitHub Releases](https://github.com/XTLS/Xray-core/releases) в папку `xray_dist` рядом со скриптом. Ручная установка не обязательна.
+
+## Установка
+
+```bash
+pip install -r requirements.txt
+```
+
+## Режимы работы
+
+- **single** - проверка ключей из одной ссылки (аргумент командной строки или `DEFAULT_LIST_URL`).
+- **merge** - объединение ключей из нескольких ссылок и проверка одной группы. Ссылки задаются в файле `links.txt` (по одной URL на строку). Имя файла задаётся в `.env` переменной `LINKS_FILE`.
+
+## Режимы проверки ключей
+
+- **Обычный** (`STRONG_STYLE_TEST=false`) - несколько тестовых URL (HTTP и/или HTTPS), повторные запросы, проверки стабильности. Настраивается через `TEST_URLS`, `TEST_URLS_HTTPS`, `MIN_SUCCESSFUL_URLS`, `REQUIRE_HTTPS`, `STABILITY_CHECKS` и др.
+- **Строгий** (`STRONG_STYLE_TEST=true`) - один тестовый URL `https://www.gstatic.com/generate_204`, один или два запроса подряд, без повторов. Ключ считается рабочим только при ответе 204, пустом теле и времени ответа не более `STRONG_MAX_RESPONSE_TIME` секунд. Результаты ближе к поведению мобильных клиентов.
+
+Полный список переменных - в `.env.example`.
+
+## Запуск
+
+Список по умолчанию (режим single):
+
+```bash
+python vless_checker.py
+```
+
+Свой URL списка (режим single):
+
+```bash
+python vless_checker.py "https://example.com/my-vless-list.txt"
+```
+
+Режим merge: положите ссылки в `links.txt`, в `.env` задайте `MODE=merge`:
+
+```bash
+# В links.txt по одной URL на строку, например:
+# https://example.com/list1.txt
+# https://example.com/list2.txt
+python vless_checker.py
+```
+
+## Настройки (файл `.env`)
+
+Параметры задаются в **`.env`** в каталоге проекта (или через переменные окружения). Шаблон со всеми опциями - **`.env.example`**.
+
+| Переменная | Описание |
+|------------|----------|
+| `MODE` | Режим: `single` или `merge` |
+| `LINKS_FILE` | Файл со ссылками при `MODE=merge` (по одной URL на строку) |
+| `DEFAULT_LIST_URL` | URL списка по умолчанию (при `MODE=single`) |
+| `OUTPUT_FILE` | Базовое имя файла для рабочих ключей (`available.txt`) |
+| `TEST_URL`, `TEST_URLS` | URL для проверки (HTTP); при нескольких - через запятую |
+| `TEST_URLS_HTTPS` | HTTPS URL (например `https://www.gstatic.com/generate_204`) |
+| `REQUIRE_HTTPS` | Требовать успешный HTTPS для признания ключа рабочим |
+| `STRONG_STYLE_TEST` | Строгий режим: один URL, 1-2 запроса, лимит по времени (`true`/`false`) |
+| `STRONG_STYLE_TIMEOUT` | Таймаут одного запроса в строгом режиме, сек. |
+| `STRONG_MAX_RESPONSE_TIME` | В строгом режиме макс. время ответа, сек. (медленнее - мёртвый) |
+| `STRONG_DOUBLE_CHECK` | В строгом режиме делать два запроса, оба должны успешно пройти |
+| `CONNECT_TIMEOUT` | Таймаут запроса через прокси, сек. |
+| `MAX_RESPONSE_TIME` | Макс. допустимое время ответа, сек. (0 = не ограничивать) |
+| `MAX_WORKERS` | Число потоков (параллельных проверок) |
+| `BASE_PORT` | Начальный порт для SOCKS (порты BASE_PORT ... BASE_PORT+MAX_WORKERS-1) |
+| `XRAY_STARTUP_WAIT` | Ожидание старта xray, сек. |
+| `XRAY_STARTUP_POLL_INTERVAL` | Интервал опроса процесса xray, сек. |
+| `XRAY_PATH` | Путь к xray (пусто = поиск в PATH и автоустановка) |
+| `XRAY_DIR_NAME` | Папка для скачанного xray |
+| `VERIFY_HTTPS_SSL` | Проверять SSL при HTTPS-запросах через прокси (`false` типично для SOCKS) |
+| `DEBUG_FIRST_FAIL` | Вывод отладки при первой неудаче (`true`/`false`) |
+
+Остальные параметры (повторы, стабильность, геолокация, строгий режим проверки всех URL и т.д.) описаны в `.env.example`.
+
+## Docker: эмуляция ограничения по CIDR whitelist
+
+В контейнере исходящий доступ ограничен только подсетями из [CIDR whitelist](https://github.com/hxehex/russia-mobile-internet-whitelist).
+
+- **Сборка и запуск:** `docker compose up --build` (или `docker compose run --rm vless-checker`)
+- **Результат:** файл с рабочими ключами создаётся в корне проекта на хосте (volume `.:/app`)
+- **Свой URL списка:** `docker compose run --rm vless-checker "https://example.com/keys.txt"`
+- **Режим merge:** положите `links.txt` в каталог проекта (volume `.:/app`), задайте в `.env` `MODE=merge` и запустите `docker compose run --rm vless-checker`
+- Требуется `cap_add: NET_ADMIN` для iptables внутри контейнера

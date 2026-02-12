@@ -1,0 +1,12 @@
+# Не копировать в образ
+xray_dist/
+.env
+available.txt
+*.md
+.git
+.gitignore
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.zip

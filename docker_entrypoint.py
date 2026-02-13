@@ -22,15 +22,20 @@ def fetch(url: str) -> str:
 
 
 def parse_vless_lines(text: str) -> list[tuple[str, str]]:
-    """Строки с vless://: (ссылка, полная_строка)."""
+    """Строки с прокси-протоколами: (ссылка, полная_строка). Поддерживает VLESS, VMess, Trojan, Shadowsocks."""
+    supported_protocols = ("vless://", "vmess://", "trojan://", "ss://")
     result = []
     for line in text.splitlines():
         line = line.strip()
-        if not line or not line.startswith("vless://"):
+        if not line:
             continue
-        link = line.split(maxsplit=1)[0].strip()
-        if link:
-            result.append((link, line))
+        # Проверяем, начинается ли строка с одного из поддерживаемых протоколов
+        for protocol in supported_protocols:
+            if line.startswith(protocol):
+                link = line.split(maxsplit=1)[0].strip()
+                if link:
+                    result.append((link, line))
+                break
     return result
 
 

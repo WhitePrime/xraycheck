@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Проверка VLESS-ключей (end-to-end).
+Проверка прокси-ключей (end-to-end).
+Поддерживает протоколы: VLESS, VMess, Trojan, Shadowsocks.
 Загружает список по URL, для каждого ключа: поднимает локальный прокси через xray,
 делает HTTP-запрос через прокси к тестовому URL; по ответу решает «жив»/«мёртв».
 Рабочие ключи сохраняются в файл.
@@ -45,7 +46,7 @@ from config import (
 from config_display import print_current_config
 from export import export_to_csv, export_to_html, export_to_json
 from metrics import calculate_performance_metrics, print_statistics_table
-from parsing import get_output_path, load_merged_keys, parse_vless_lines, parse_vless_url
+from parsing import get_output_path, load_merged_keys, parse_proxy_lines, parse_proxy_url
 from signals import available_keys, interrupted, output_path_global
 from xray_manager import build_xray_config, ensure_xray
 
@@ -92,7 +93,7 @@ def main():
         except (requests.RequestException, OSError) as e:
             console.print(f"[bold red]Ошибка загрузки списка:[/bold red] {e}")
             sys.exit(1)
-        keys = parse_vless_lines(text)
+        keys = parse_proxy_lines(text)
 
     output_path = get_output_path(list_url)
 
@@ -100,7 +101,8 @@ def main():
         if not keys:
             console.print("[red]Нет ключей в списке.[/red]")
             sys.exit(1)
-        parsed = parse_vless_url(keys[0][0])
+        from parsing import parse_proxy_url
+        parsed = parse_proxy_url(keys[0][0])
         if not parsed:
             console.print("[red]Не удалось разобрать первый ключ.[/red]")
             sys.exit(1)
@@ -272,7 +274,7 @@ def save_results_and_exit(available: list, all_metrics: dict, output_path: str, 
             last_line = lines[-1].strip()
             # Извлекаем чистую ссылку (до первого пробела или конца строки)
             link = last_line.split()[0] if last_line.split() else last_line
-            if link.startswith('vless://'):
+            if link.startswith(('vless://', 'vmess://', 'trojan://', 'ss://')):
                 available_links.add(link)
     
     results_for_metrics = []

@@ -29,27 +29,121 @@ console = Console()
 
 
 def build_xray_config(parsed: dict, socks_port: int) -> dict:
-    """Собирает конфиг xray: inbound SOCKS, outbound VLESS (Reality)."""
-    user = {"id": parsed["uuid"], "encryption": "none"}
-    if parsed.get("flow"):
-        user["flow"] = parsed["flow"]
-
+    """
+    Собирает конфиг xray: inbound SOCKS, outbound для различных протоколов.
+    Поддерживает: VLESS, VMess, Trojan, Shadowsocks.
+    """
+    protocol = parsed.get("protocol", "vless")
+    address = parsed.get("address", "")
+    port = parsed.get("port", 443)
+    
+    # Базовые stream settings
+    network = parsed.get("network", "tcp")
+    security = parsed.get("security", "none")
+    
+    # Для VMess security может быть в поле "tls"
+    if protocol == "vmess" and parsed.get("tls"):
+        security = parsed.get("tls", "none")
+    
     stream = {
-        "network": parsed["network"],
-        "security": parsed["security"],
+        "network": network,
+        "security": security,
     }
-    if parsed["security"] == "reality":
+    
+    # Настройки для разных типов безопасности
+    if security == "reality":
         stream["realitySettings"] = {
             "fingerprint": parsed.get("fingerprint") or "chrome",
             "serverName": parsed.get("serverName") or "",
             "publicKey": parsed.get("publicKey") or "",
             "shortId": parsed.get("shortId") or "",
         }
-    if parsed["network"] == "grpc":
-        stream["grpcSettings"] = {"serviceName": ""}
-    if parsed["network"] == "xhttp":
+    elif security == "tls":
+        stream["tlsSettings"] = {
+            "serverName": parsed.get("serverName") or "",
+            "allowInsecure": False,
+        }
+    
+    # Настройки для разных типов сетей
+    network = stream["network"]
+    if network == "grpc":
+        stream["grpcSettings"] = {
+            "serviceName": parsed.get("grpcServiceName") or ""
+        }
+    elif network == "ws":
+        stream["wsSettings"] = {
+            "path": parsed.get("wsPath") or "/",
+            "headers": {}
+        }
+        if parsed.get("wsHost"):
+            stream["wsSettings"]["headers"]["Host"] = parsed["wsHost"]
+    elif network == "xhttp":
         stream["xhttpSettings"] = {"mode": parsed.get("mode") or "auto"}
-
+    elif network == "h2":
+        stream["httpSettings"] = {
+            "path": parsed.get("wsPath") or "/",
+            "host": [parsed.get("wsHost")] if parsed.get("wsHost") else []
+        }
+    
+    # Строим outbound в зависимости от протокола
+    outbound = {
+        "protocol": protocol,
+        "streamSettings": stream,
+        "tag": "proxy",
+    }
+    
+    if protocol == "vless":
+        user = {"id": parsed.get("uuid", ""), "encryption": "none"}
+        if parsed.get("flow"):
+            user["flow"] = parsed["flow"]
+        outbound["settings"] = {
+            "vnext": [
+                {
+                    "address": address,
+                    "port": port,
+                    "users": [user],
+                }
+            ]
+        }
+    elif protocol == "vmess":
+        user = {
+            "id": parsed.get("id", ""),
+            "alterId": parsed.get("alterId", 0),
+            "security": parsed.get("security", "auto"),
+        }
+        outbound["settings"] = {
+            "vnext": [
+                {
+                    "address": address,
+                    "port": port,
+                    "users": [user],
+                }
+            ]
+        }
+    elif protocol == "trojan":
+        outbound["settings"] = {
+            "servers": [
+                {
+                    "address": address,
+                    "port": port,
+                    "password": parsed.get("password", ""),
+                }
+            ]
+        }
+    elif protocol == "shadowsocks":
+        outbound["settings"] = {
+            "servers": [
+                {
+                    "address": address,
+                    "port": port,
+                    "method": parsed.get("method", "aes-256-gcm"),
+                    "password": parsed.get("password", ""),
+                }
+            ]
+        }
+    else:
+        raise ValueError(f"Неподдерживаемый протокол: {protocol}")
+    
     return {
         "log": {"loglevel": "error"},
         "inbounds": [
@@ -62,20 +156,7 @@ def build_xray_config(parsed: dict, socks_port: int) -> dict:
             }
         ],
         "outbounds": [
-            {
-                "protocol": "vless",
-                "settings": {
-                    "vnext": [
-                        {
-                            "address": parsed["address"],
-                            "port": parsed["port"],
-                            "users": [user],
-                        }
-                    ]
-                },
-                "streamSettings": stream,
-                "tag": "proxy",
-            },
+            outbound,
             {"protocol": "freedom", "tag": "direct"},
         ],
         "routing": {

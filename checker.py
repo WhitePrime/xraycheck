@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Модуль проверки VLESS-ключей - основная логика проверки.
+Модуль проверки прокси-ключей - основная логика проверки.
+Поддерживает протоколы: VLESS, VMess, Trojan, Shadowsocks.
 """
 
 import json
@@ -50,7 +51,7 @@ import logging
 from logger_config import should_debug as should_debug_func
 
 logger = logging.getLogger(__name__)
-from parsing import parse_vless_url
+from parsing import parse_proxy_url, parse_vless_url
 from port_pool import return_port, take_port
 from signals import active_processes
 from utils import (
@@ -102,10 +103,10 @@ def check_key_e2e(vless_line: str, debug: bool = False, cache: Optional[dict] = 
         "cached": False
     }
     
-    parsed = parse_vless_url(vless_line)
+    parsed = parse_proxy_url(vless_line)
     if not parsed:
         if should_debug_flag:
-            logger.debug("Не удалось разобрать VLESS-ссылку.")
+            logger.debug("Не удалось разобрать прокси-ссылку.")
         return (vless_line, False, metrics)
 
     port = take_port()

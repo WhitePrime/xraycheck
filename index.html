@@ -82,6 +82,31 @@
             border-color: rgba(255, 255, 255, 0.5);
         }
 
+        .btn-wrap {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-copied {
+            position: absolute;
+            left: 100%;
+            margin-left: 0.75rem;
+            white-space: nowrap;
+            font-size: 0.875rem;
+            color: #22c55e;
+            opacity: 0;
+            transform: translateX(-8px);
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            pointer-events: none;
+        }
+
+        .btn-copied.is-visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
         @media (max-width: 640px) {
             .buttons {
                 flex-direction: column;
@@ -96,6 +121,13 @@
             h1 {
                 font-size: 2.5rem;
             }
+
+            .btn-copied {
+                position: static;
+                margin-left: 0;
+                margin-top: 0.25rem;
+                display: block;
+            }
         }
     </style>
 </head>
@@ -103,13 +135,63 @@
     <div class="container">
         <h1>free X-Ray</h1>
         <div class="buttons">
-            <a href="https://github.com/WhitePrime/xraycheck/raw/main/available.txt" class="btn btn-primary" target="_blank" rel="noopener noreferrer">
-                available
-            </a>
-            <a href="https://github.com/WhitePrime/xraycheck/raw/main/white-list_available.txt" class="btn" target="_blank" rel="noopener noreferrer">
-                white list
-            </a>
+            <span class="btn-wrap">
+                <a href="https://github.com/WhitePrime/xraycheck/raw/main/available.txt" class="btn btn-primary" target="_blank" rel="noopener noreferrer" data-copy-link>
+                    available
+                </a>
+                <span class="btn-copied" aria-live="polite">Ссылка скопирована</span>
+            </span>
+            <span class="btn-wrap">
+                <a href="https://github.com/WhitePrime/xraycheck/raw/main/white-list_available.txt" class="btn" target="_blank" rel="noopener noreferrer" data-copy-link>
+                    white list
+                </a>
+                <span class="btn-copied" aria-live="polite">Ссылка скопирована</span>
+            </span>
         </div>
     </div>
+    <script>
+        document.querySelectorAll('[data-copy-link]').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                var url = this.getAttribute('href');
+                var wrap = this.closest('.btn-wrap');
+                var notice = wrap ? wrap.querySelector('.btn-copied') : null;
+
+                function showNotice() {
+                    if (notice) {
+                        notice.classList.add('is-visible');
+                        setTimeout(function() {
+                            notice.classList.remove('is-visible');
+                        }, 2000);
+                    }
+                }
+
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(url).then(showNotice).catch(function() {
+                        fallbackCopy(url, showNotice);
+                    });
+                } else {
+                    fallbackCopy(url, showNotice);
+                }
+
+                window.open(url, '_blank', 'noopener,noreferrer');
+            });
+        });
+
+        function fallbackCopy(text, onDone) {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', '');
+            ta.style.position = 'absolute';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            try {
+                document.execCommand('copy');
+                if (onDone) onDone();
+            } catch (err) {}
+            document.body.removeChild(ta);
+        }
+    </script>
 </body>
 </html>

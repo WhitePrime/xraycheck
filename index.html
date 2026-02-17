@@ -46,6 +46,13 @@
             margin-top: 2rem;
         }
 
+        .btn-wrap {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
         .btn {
             padding: 0.875rem 2rem;
             font-size: 1rem;
@@ -82,8 +89,15 @@
             border-color: rgba(255, 255, 255, 0.5);
         }
 
-        .btn-wrap {
-            display: inline-flex;
+        .mirror-link {
+            font-size: 0.875rem;
+            color: rgba(255, 255, 255, 0.7);
+            text-decoration: underline;
+            font-family: inherit;
+        }
+
+        .mirror-link:hover {
+            color: rgba(255, 255, 255, 0.9);
         }
 
         .btn-copied-wrap {
@@ -120,6 +134,10 @@
                 align-items: stretch;
             }
 
+            .btn-wrap {
+                align-items: stretch;
+            }
+
             .btn {
                 width: 100%;
                 justify-content: center;
@@ -139,11 +157,13 @@
                 <a href="https://github.com/WhitePrime/xraycheck/raw/main/available.txt" class="btn btn-primary" data-copy-link>
                     available
                 </a>
+                <a href="https://translate.yandex.ru/translate?url=https://github.com/WhitePrime/xraycheck/raw/main/available.txt&lang=en-ru" class="mirror-link" data-copy-link title="Зеркало">Зеркало</a>
             </span>
             <span class="btn-wrap">
                 <a href="https://github.com/WhitePrime/xraycheck/raw/main/white-list_available.txt" class="btn" data-copy-link>
                     white list
                 </a>
+                <a href="https://translate.yandex.ru/translate?url=https://github.com/WhitePrime/xraycheck/raw/main/white-list_available.txt&lang=en-ru" class="mirror-link" data-copy-link title="Зеркало">Зеркало</a>
             </span>
             <span class="btn-copied-wrap">
                 <span class="btn-copied" id="copy-notice" aria-live="polite">Ссылка скопирована</span>
@@ -152,8 +172,8 @@
     </div>
     <script>
         var notice = document.getElementById('copy-notice');
-        document.querySelectorAll('[data-copy-link]').forEach(function(btn) {
-            btn.addEventListener('click', function(e) {
+        document.querySelectorAll('[data-copy-link]').forEach(function(el) {
+            el.addEventListener('click', function(e) {
                 e.preventDefault();
                 var url = this.getAttribute('href');
 

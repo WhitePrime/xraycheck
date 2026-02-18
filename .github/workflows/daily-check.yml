@@ -19,8 +19,7 @@ env:
   LINKS_FILE: links.txt
   OUTPUT_FILE: available.txt
   OUTPUT_ADD_DATE: 'false'
-  # В CI уменьшаем число потоков, чтобы уложиться в таймаут и не перегружать runner
-  MAX_WORKERS: 16
+  MAX_WORKERS: 200
   EXPORT_FORMAT: txt
   ENABLE_CACHE: 'false'
 

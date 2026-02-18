@@ -9,9 +9,10 @@ on:
     workflows: ["Daily VLESS check"]
     types: [completed]
     branches: [main]
+  workflow_dispatch:
 
 env:
-  MODE: merge
+  MODE: single
   LINKS_FILE: links.txt
   OUTPUT_FILE: white-list_available.txt
   OUTPUT_ADD_DATE: 'false'
@@ -21,7 +22,7 @@ env:
 
 jobs:
   docker-check-and-publish:
-    if: github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -29,13 +30,14 @@ jobs:
 
     steps:
       - name: Wait 1 hour after daily check
+        if: github.event_name == 'workflow_run'
         run: sleep 3600
 
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: main
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Ensure .env exists for docker compose
         run: touch .env
@@ -48,7 +50,7 @@ jobs:
 
       - name: Run checker in Docker (input = available.txt from main)
         env:
-          AVAILABLE_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.event.repository.default_branch || 'main' }}/available.txt
+          AVAILABLE_URL: https://raw.githubusercontent.com/${{ github.repository }}/main/available.txt
         run: |
           docker compose run --rm \
             -e OUTPUT_FILE="$OUTPUT_FILE" \

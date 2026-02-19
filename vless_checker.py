@@ -288,11 +288,11 @@ def _create_top100_file(output_path: str, available_sorted: list[tuple[str, floa
     # Берем первые 100 элементов
     top100 = available_sorted[:100]
     
-    # Формируем имя файла: исходное_имя + (top100).txt
+    # Формируем имя файла: исходное_имя + (top100).txt (без пробела перед скобкой)
     base_path = Path(output_path)
     base_name = base_path.stem  # Имя без расширения
     base_ext = base_path.suffix or ".txt"  # Расширение или .txt по умолчанию
-    top100_name = f"{base_name} (top100){base_ext}"
+    top100_name = f"{base_name}(top100){base_ext}"
     top100_path = base_path.parent / top100_name
     
     # Сохраняем top100 (с префиксом задержки для информации)

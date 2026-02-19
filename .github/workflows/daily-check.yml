@@ -56,7 +56,7 @@ jobs:
       - name: Run vless_checker.py
         run: python vless_checker.py
 
-      - name: Commit and push available.txt and available (top100).txt
+      - name: Commit and push available.txt and available(top100).txt
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -65,8 +65,8 @@ jobs:
             git add available.txt
             CHANGED=1
           fi
-          if [ -f "available (top100).txt" ] && [ -n "$(git status --porcelain 'available (top100).txt')" ]; then
-            git add "available (top100).txt"
+          if [ -f "available(top100).txt" ] && [ -n "$(git status --porcelain 'available(top100).txt')" ]; then
+            git add "available(top100).txt"
             CHANGED=1
           fi
           if [ -n "$CHANGED" ]; then

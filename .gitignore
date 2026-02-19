@@ -5,7 +5,7 @@
 *.txt
 !requirements.txt
 !white-list_available.txt
-!white-list_available (top100).txt
+!white-list_available(top100).txt
 *.md
 !README.md
 
@@ -50,5 +50,5 @@ available*.json
 # Результаты проверки (если не нужно коммитить)
 available*.txt
 !available.txt
-!available (top100).txt
+!available(top100).txt
 github_parser/

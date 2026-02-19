@@ -1,5 +1,5 @@
 # Проверка конфигов в Docker (CIDR whitelist) и публикация white-list_available.txt
-# Запускается через 1 час после успешного завершения workflow "Daily VLESS check".
+# Запускается сразу после успешного завершения workflow "Daily VLESS check".
 # Берёт список ключей из available.txt (не из links.txt).
 
 name: Daily VLESS check (Docker / whitelist)
@@ -29,10 +29,6 @@ jobs:
       contents: write
 
     steps:
-      - name: Wait 1 hour after daily check
-        if: github.event_name == 'workflow_run'
-        run: sleep 3600
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -64,14 +60,14 @@ jobs:
       - name: Verify white-list_available.txt and top100 were created
         run: |
           test -f "white-list_available.txt" || (echo "::error::white-list_available.txt not found" && exit 1)
-          if [ -f "white-list_available.txt" ] && [ ! -f "white-list_available (top100).txt" ]; then
-            echo "::error::white-list_available (top100).txt not found (must be created when main file exists)"
+          if [ -f "white-list_available.txt" ] && [ ! -f "white-list_available(top100).txt" ]; then
+            echo "::error::white-list_available(top100).txt not found (must be created when main file exists)"
             exit 1
           fi
           echo "Output files:"
-          ls -la white-list_available.txt "white-list_available (top100).txt" 2>/dev/null || true
+          ls -la white-list_available.txt "white-list_available(top100).txt" 2>/dev/null || true
 
-      - name: Commit and push white-list_available.txt and white-list_available (top100).txt
+      - name: Commit and push white-list_available.txt and white-list_available(top100).txt
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -80,8 +76,8 @@ jobs:
             git add white-list_available.txt
             CHANGED=1
           fi
-          if [ -f "white-list_available (top100).txt" ] && [ -n "$(git status --porcelain 'white-list_available (top100).txt')" ]; then
-            git add "white-list_available (top100).txt"
+          if [ -f "white-list_available(top100).txt" ] && [ -n "$(git status --porcelain 'white-list_available(top100).txt')" ]; then
+            git add "white-list_available(top100).txt"
             CHANGED=1
           fi
           if [ -n "$CHANGED" ]; then

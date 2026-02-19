@@ -1,14 +1,15 @@
 # Ежедневная проверка VLESS-ключей и публикация available.txt
-# Лимиты: публичные репозитории - безлимитные минуты; один запуск в день + таймаут 50 мин
 
 name: Daily VLESS check
 
 on:
   schedule:
-    # Раз в день в 03:15 UTC (меньше нагрузка, чем ровно в полночь)
     - cron: '15 3 * * *'
   workflow_dispatch:
     # Ручной запуск из вкладки Actions
+  push:
+    branches: [main, master]
+    paths: ['.github/workflows/daily-check.yml']
 
 concurrency:
   group: daily-vless-check

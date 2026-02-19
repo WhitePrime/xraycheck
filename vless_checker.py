@@ -10,6 +10,7 @@
 
 import json
 import os
+import re
 import statistics
 import sys
 import time
@@ -277,10 +278,20 @@ def main():
     save_results_and_exit(available, all_metrics, output_path, elapsed, total, cache)
 
 
+# Регулярка для удаления префикса задержки "[123ms] " перед публикацией
+_LATENCY_PREFIX_RE = re.compile(r"^\[\d+ms\]\s*", re.MULTILINE)
+
+
+def _strip_latency_prefix(text: str) -> str:
+    """Убирает префикс задержки [Nms] из начала строк перед записью в файл для публикации."""
+    return _LATENCY_PREFIX_RE.sub("", text)
+
+
 def _create_top100_file(output_path: str, available_sorted: list[tuple[str, float]]) -> Optional[str]:
     """
     Создает файл с топ-100 конфигами (минимальная задержка).
     Возвращает путь к созданному файлу или None если недостаточно ключей.
+    Перед записью из строк убирается префикс задержки [Nms].
     """
     if len(available_sorted) == 0:
         return None
@@ -295,8 +306,8 @@ def _create_top100_file(output_path: str, available_sorted: list[tuple[str, floa
     top100_name = f"{base_name}(top100){base_ext}"
     top100_path = base_path.parent / top100_name
     
-    # Сохраняем top100 (с префиксом задержки для информации)
-    top100_lines = [item[0] for item in top100]
+    # Сохраняем top100 без префикса задержки (для публикации)
+    top100_lines = [_strip_latency_prefix(item[0]) for item in top100]
     with open(top100_path, "w", encoding="utf-8") as f:
         f.write("\n".join(top100_lines))
     
@@ -318,11 +329,10 @@ def save_results_and_exit(available: list[tuple[str, float]], all_metrics: dict,
     # Сортировка по задержке (минимальная в начале)
     available_sorted = sorted(available, key=lambda x: x[1])
     
-    # Сохранение результатов в текстовый файл (отсортированные)
+    # Сохранение результатов в текстовый файл (отсортированные, без префикса задержки для публикации)
     if available_sorted:
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        # Извлекаем только строки (без задержки) для сохранения
-        available_lines = [item[0] for item in available_sorted]
+        available_lines = [_strip_latency_prefix(item[0]) for item in available_sorted]
         with open(output_path, "w", encoding="utf-8") as f:
             f.write("\n".join(available_lines))
         console.print(f"\n[green]✓[/green] Результаты сохранены в: [bold]{output_path}[/bold] (отсортированы по задержке)")

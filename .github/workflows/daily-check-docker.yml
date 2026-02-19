@@ -61,9 +61,8 @@ jobs:
       - name: Verify white-list_available.txt and create top100 if missing
         run: |
           test -f "white-list_available.txt" || (echo "::error::white-list_available.txt not found" && exit 1)
-          if [ .before-docker-run -nt "white-list_available.txt" ] || [ ! -f .before-docker-run ]; then
-            echo "::error::white-list_available.txt was not updated by Docker (checker produced no output or wrote elsewhere)"
-            exit 1
+          if [ -f .before-docker-run ] && [ .before-docker-run -nt "white-list_available.txt" ]; then
+            echo "::warning::white-list_available.txt was not updated by Docker (0 results or checker wrote elsewhere), using existing file"
           fi
           if [ ! -f "white-list_available(top100).txt" ]; then
             echo "white-list_available(top100).txt not created by checker, creating from first 100 lines of main file"

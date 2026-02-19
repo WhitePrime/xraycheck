@@ -19,6 +19,30 @@ env:
   MAX_WORKERS: 200
   EXPORT_FORMAT: txt
   ENABLE_CACHE: 'false'
+  TEST_URLS: http://www.google.com/generate_204,http://www.cloudflare.com/cdn-cgi/trace
+  TEST_URLS_HTTPS: https://www.gstatic.com/generate_204
+  REQUIRE_HTTPS: 'true'
+  STRONG_STYLE_TEST: 'true'
+  STRONG_STYLE_TIMEOUT: 30
+  STRONG_MAX_RESPONSE_TIME: 5
+  STRONG_DOUBLE_CHECK: 'true'
+  REQUESTS_PER_URL: 2
+  MIN_SUCCESSFUL_REQUESTS: 2
+  MIN_SUCCESSFUL_URLS: 2
+  REQUEST_DELAY: 0.1
+  CONNECT_TIMEOUT: 6
+  CONNECT_TIMEOUT_SLOW: 15
+  USE_ADAPTIVE_TIMEOUT: 'false'
+  MAX_RETRIES: 1
+  MAX_RESPONSE_TIME: 6
+  MIN_RESPONSE_SIZE: 0
+  MAX_LATENCY_MS: 3000
+  VERIFY_HTTPS_SSL: 'false'
+  STABILITY_CHECKS: 2
+  STABILITY_CHECK_DELAY: 2.0
+  STRICT_MODE: 'true'
+  STRICT_MODE_REQUIRE_ALL: 'true'
+  TEST_POST_REQUESTS: 'false'
 
 jobs:
   docker-check-and-publish:
@@ -56,6 +80,30 @@ jobs:
             -e MAX_WORKERS="$MAX_WORKERS" \
             -e EXPORT_FORMAT="$EXPORT_FORMAT" \
             -e ENABLE_CACHE="$ENABLE_CACHE" \
+            -e TEST_URLS="$TEST_URLS" \
+            -e TEST_URLS_HTTPS="$TEST_URLS_HTTPS" \
+            -e REQUIRE_HTTPS="$REQUIRE_HTTPS" \
+            -e STRONG_STYLE_TEST="$STRONG_STYLE_TEST" \
+            -e STRONG_STYLE_TIMEOUT="$STRONG_STYLE_TIMEOUT" \
+            -e STRONG_MAX_RESPONSE_TIME="$STRONG_MAX_RESPONSE_TIME" \
+            -e STRONG_DOUBLE_CHECK="$STRONG_DOUBLE_CHECK" \
+            -e REQUESTS_PER_URL="$REQUESTS_PER_URL" \
+            -e MIN_SUCCESSFUL_REQUESTS="$MIN_SUCCESSFUL_REQUESTS" \
+            -e MIN_SUCCESSFUL_URLS="$MIN_SUCCESSFUL_URLS" \
+            -e REQUEST_DELAY="$REQUEST_DELAY" \
+            -e CONNECT_TIMEOUT="$CONNECT_TIMEOUT" \
+            -e CONNECT_TIMEOUT_SLOW="$CONNECT_TIMEOUT_SLOW" \
+            -e USE_ADAPTIVE_TIMEOUT="$USE_ADAPTIVE_TIMEOUT" \
+            -e MAX_RETRIES="$MAX_RETRIES" \
+            -e MAX_RESPONSE_TIME="$MAX_RESPONSE_TIME" \
+            -e MIN_RESPONSE_SIZE="$MIN_RESPONSE_SIZE" \
+            -e MAX_LATENCY_MS="$MAX_LATENCY_MS" \
+            -e VERIFY_HTTPS_SSL="$VERIFY_HTTPS_SSL" \
+            -e STABILITY_CHECKS="$STABILITY_CHECKS" \
+            -e STABILITY_CHECK_DELAY="$STABILITY_CHECK_DELAY" \
+            -e STRICT_MODE="$STRICT_MODE" \
+            -e STRICT_MODE_REQUIRE_ALL="$STRICT_MODE_REQUIRE_ALL" \
+            -e TEST_POST_REQUESTS="$TEST_POST_REQUESTS" \
             vless-checker "$AVAILABLE_URL"
 
       - name: Verify white-list_available.txt and create top100 if missing

@@ -4,9 +4,10 @@ name: Daily VLESS check
 
 on:
   schedule:
-    - cron: '0 4 * * *'   # 7:00 MSK
-    - cron: '0 11 * * *'  # 14:00 MSK
-    - cron: '0 16 * * *'  # 19:00 MSK
+    # MSK (UTC+3). Сдвиг на 10 мин от начала часа уменьшает задержки GitHub
+    - cron: '10 4 * * *'   # 7:10 MSK
+    - cron: '10 11 * * *'  # 14:10 MSK
+    - cron: '10 16 * * *'  # 19:10 MSK
   workflow_dispatch:
     # Ручной запуск из вкладки Actions
 

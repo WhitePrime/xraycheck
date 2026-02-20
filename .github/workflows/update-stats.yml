@@ -32,7 +32,9 @@ jobs:
       - name: Get repository statistics
         id: stats
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          # Используем PAT из секретов, если доступен, иначе fallback на github.token
+          # PAT нужен для доступа к статистике трафика (views/clones)
+          GITHUB_TOKEN: ${{ secrets.REPO_STATS_TOKEN || github.token }}
         run: |
           python3 << 'PYTHON_SCRIPT'
           import os

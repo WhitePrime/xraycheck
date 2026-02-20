@@ -1,4 +1,37 @@
-# xraycheck - проверка прокси-ключей (end-to-end)
+<div align="center">
+
+# XRaycheck - проверка VPN-ключей (end-to-end)
+
+> Автоматически обновляемая коллекция публичных VPN-конфигов:
+> (**VLESS**, **VMess**, **Trojan**, **Shadowsocks**)
+
+[**сайт**](https://whiteprime.github.io/xraycheck/)
+
+[**файлы в configs**](https://github.com/WhitePrime/xraycheck/tree/main/configs)
+
+
+</div>
+
+
+****
+
+<details>
+
+<summary>Техническая информация</summary>
+
+
+****
+
+<div align="center">
+   
+**[Исходный код](https://github.com/WhitePrime/xraycheck/tree/main)**
+   
+</div>
+
+
+****
+
+
 
 Поддерживаемые протоколы: **VLESS**, **VMess**, **Trojan**, **Shadowsocks**
 
@@ -32,6 +65,12 @@ pip install -r requirements.txt
 - **Строгий** (`STRONG_STYLE_TEST=true`) - один тестовый URL `https://www.gstatic.com/generate_204`, один или два запроса подряд, без повторов. Ключ считается рабочим только при ответе 204, пустом теле и времени ответа не более `STRONG_MAX_RESPONSE_TIME` секунд. Результаты ближе к поведению мобильных клиентов.
 
 Полный список переменных - в `.env.example`.
+
+</details>
+
+<details>
+
+<summary>Локальный запуск (Python & Docker)</summary>
 
 ## Запуск
 
@@ -156,12 +195,20 @@ chmod +x run_check.sh
 - **Режим merge:** положите `links.txt` в каталог проекта (volume `.:/app`), задайте в `.env` `MODE=merge` и запустите `docker compose run --rm vless-checker`
 - Требуется `cap_add: NET_ADMIN` для iptables внутри контейнера
 
+</details>
+
+<details>
+
+<summary>Github Action</summary>
+
 ## GitHub Actions: ежедневное обновление available.txt
 
 В репозитории настроен workflow **Daily VLESS check** (`.github/workflows/daily-check.yml`):
 
-- **Расписание:** раз в день в 03:15 UTC (cron).
+- **Расписание:** три раза в день в 7:10 | 14:10 | 19:10 MSK (cron).
 - **Действия:** запуск `vless_checker.py` в режиме `merge` (списки из `links.txt`), результат пишется в `configs/available.txt`; при изменении файла коммит и push в текущую ветку.
 - **Ручной запуск:** вкладка Actions → «Daily VLESS check» → Run workflow.
 
 **Чтобы не публиковать `links.txt` в репозитории:** файл `links.txt` уже попадает под маску `*.txt` в `.gitignore`. В CI он создаётся из секрета. Добавьте в репозитории **Settings → Secrets and variables → Actions** секрет с именем **`LINKS_FILE_CONTENT`** и значением - содержимое вашего `links.txt` (по одной URL на строку). Workflow перед запуском проверки запишет этот секрет во временный `links.txt`. Если секрет не задан, шаг «Create links.txt from secret» завершится с ошибкой. Если `links.txt` уже был закоммичен ранее, удалите его из истории и добавьте секрет: `git rm --cached links.txt` и коммит.
+
+</details>

@@ -307,6 +307,18 @@
             color: var(--text-muted);
         }
 
+        .view-counter {
+            text-align: center;
+            margin-top: 0.75rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .view-counter span {
+            font-weight: 600;
+            color: var(--text);
+        }
+
         @media (max-width: 640px) {
             .config-card {
                 flex-direction: column;
@@ -439,6 +451,7 @@
         </div>
 
         <p class="footer">Configurations are updated automatically</p>
+        <p class="view-counter">Views: <span id="busuanzi_value_page_pv">—</span></p>
     </div>
 
     <div class="copy-notice" id="copy-notice" aria-live="polite">Link copied</div>
@@ -502,5 +515,6 @@
                 .catch(function() {});
         })();
     </script>
+    <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
 </body>
 </html>

@@ -10,7 +10,9 @@
 
  ****
 
- | [**Техническая информация**](#техническая-информация) | [**Локальный запуск**](#локальный-запуск-python-docker) | [**Github Action**](#github-action) |
+ | [**Техническая информация**](#техническая-информация) | [**Исходный код**](https://github.com/WhitePrime/xraycheck/tree/main) |
+ 
+ | [**Локальный запуск**](#локальный-запуск) | [**Github Action**](#github-action) | 
 
  
 
@@ -38,18 +40,10 @@
 
 ****
 
-<details>
-<a id="техническая-информация"></a>
-
-<summary>Техническая информация</summary>
-
-
-****
-
 <div align="center">
-   
-**[Исходный код](https://github.com/WhitePrime/xraycheck/tree/main)**
-   
+
+# Техническая информация
+
 </div>
 
 
@@ -90,12 +84,14 @@ pip install -r requirements.txt
 
 Полный список переменных - в `.env.example`.
 
-</details>
+****
+****
 
-<details>
-<a id="локальный-запуск-python-docker"></a>
+<div align="center">
 
-<summary>Локальный запуск (Python & Docker)</summary>
+# Локальный запуск
+
+</div>
 
 ## Запуск
 
@@ -220,12 +216,16 @@ chmod +x run_check.sh
 - **Режим merge:** положите `links.txt` в каталог проекта (volume `.:/app`), задайте в `.env` `MODE=merge` и запустите `docker compose run --rm vless-checker`
 - Требуется `cap_add: NET_ADMIN` для iptables внутри контейнера
 
-</details>
 
-<details>
-<a id="github-action"></a>
+****
+****
 
-<summary>Github Action</summary>
+<div align="center">
+
+# Github Action
+
+</div>
+
 
 ## GitHub Actions: ежедневное обновление available
 
@@ -237,4 +237,3 @@ chmod +x run_check.sh
 
 **Чтобы не публиковать `links.txt` в репозитории:** файл `links.txt` уже попадает под маску `*.txt` в `.gitignore`. В CI он создаётся из секрета. Добавьте в репозитории **Settings → Secrets and variables → Actions** секрет с именем **`LINKS_FILE_CONTENT`** и значением - содержимое вашего `links.txt` (по одной URL на строку). Workflow перед запуском проверки запишет этот секрет во временный `links.txt`. Если секрет не задан, шаг «Create links.txt from secret» завершится с ошибкой. Если `links.txt` уже был закоммичен ранее, удалите его из истории и добавьте секрет: `git rm --cached links.txt` и коммит.
 
-</details>

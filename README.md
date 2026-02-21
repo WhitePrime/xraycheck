@@ -5,8 +5,14 @@
 > Автоматически обновляемая коллекция публичных VPN-конфигов:
 > (**VLESS**, **VMess**, **Trojan**, **Shadowsocks**)
 
- | [**сайт**](https://whiteprime.github.io/xraycheck/) | [**конфиги**](https://github.com/WhitePrime/xraycheck/tree/main/configs) | 
+ | [**сайт**](https://whiteprime.github.io/xraycheck/) | [**конфиги**](https://github.com/WhitePrime/xraycheck/tree/main/configs) |
 
+
+ ****
+
+ | [**Техническая информация**](#техническая-информация) | [**Локальный запуск**](#локальный-запуск-python-docker) | [**Github Action**](#github-action) |
+
+ 
 
 </div>
 
@@ -33,6 +39,7 @@
 ****
 
 <details>
+<a id="техническая-информация"></a>
 
 <summary>Техническая информация</summary>
 
@@ -86,6 +93,7 @@ pip install -r requirements.txt
 </details>
 
 <details>
+<a id="локальный-запуск-python-docker"></a>
 
 <summary>Локальный запуск (Python & Docker)</summary>
 
@@ -215,6 +223,7 @@ chmod +x run_check.sh
 </details>
 
 <details>
+<a id="github-action"></a>
 
 <summary>Github Action</summary>
 

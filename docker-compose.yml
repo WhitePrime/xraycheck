@@ -14,7 +14,7 @@ services:
     environment:
       - DEFAULT_LIST_URL=${DEFAULT_LIST_URL:-https://raw.githubusercontent.com/EtoNeYaProject/etoneyaproject.github.io/refs/heads/main/cidr}
       - CIDR_WHITELIST_URL=${CIDR_WHITELIST_URL:-https://raw.githubusercontent.com/hxehex/russia-mobile-internet-whitelist/refs/heads/main/cidrwhitelist.txt}
-      - OUTPUT_FILE=white-list_available.txt
+      - OUTPUT_FILE=white-list_available
       - OUTPUT_DIR=configs
     volumes:
       # Корень проекта в /app: скрипт пишет в configs/ → файлы на хосте

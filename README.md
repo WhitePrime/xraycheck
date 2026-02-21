@@ -60,7 +60,7 @@
 2. Делает HTTP(S)-запрос к тестовому URL **через прокси**.
 3. По ответу (статус, время, при необходимости несколько URL и повторные запросы) ключ считается рабочим или мёртвым.
 
-Рабочие ключи сохраняются в директории `configs/`: `available.txt` (без даты в имени). При запуске через Docker - в `configs/white-list_available.txt`.
+Рабочие ключи сохраняются в директории `configs/` без расширения: `available`, `available(top100)`. При запуске через Docker — `configs/white-list_available`, `configs/white-list_available(top100)`. Ссылки на скачивание с GitHub Pages: `https://whiteprime.github.io/xraycheck/configs/...` (то же имя файла без расширения).
 
 ## Требования
 
@@ -182,7 +182,7 @@ chmod +x run_check.sh
 | `MODE` | Режим: `single` или `merge` |
 | `LINKS_FILE` | Файл со ссылками при `MODE=merge` (по одной URL на строку) |
 | `DEFAULT_LIST_URL` | URL списка по умолчанию (при `MODE=single`) |
-| `OUTPUT_FILE` | Базовое имя файла для рабочих ключей (`available.txt`) |
+| `OUTPUT_FILE` | Базовое имя файла для рабочих ключей (без расширения: `available`) |
 | `OUTPUT_DIR` | Директория для результатов (`configs`) |
 | `TEST_URL`, `TEST_URLS` | URL для проверки (HTTP); при нескольких - через запятую |
 | `TEST_URLS_HTTPS` | HTTPS URL (например `https://www.gstatic.com/generate_204`) |
@@ -220,12 +220,12 @@ chmod +x run_check.sh
 
 <summary>Github Action</summary>
 
-## GitHub Actions: ежедневное обновление available.txt
+## GitHub Actions: ежедневное обновление available
 
 В репозитории настроен workflow **Daily VLESS check** (`.github/workflows/daily-check.yml`):
 
 - **Расписание:** три раза в день в 7:10 | 14:10 | 19:10 MSK (cron).
-- **Действия:** запуск `vless_checker.py` в режиме `merge` (списки из `links.txt`), результат пишется в `configs/available.txt`; при изменении файла коммит и push в текущую ветку.
+- **Действия:** запуск `vless_checker.py` в режиме `merge` (списки из `links.txt`), результат пишется в `configs/available` и `configs/available(top100)`; копии в корень для GitHub Pages; при изменении — коммит и push.
 - **Ручной запуск:** вкладка Actions → «Daily VLESS check» → Run workflow.
 
 **Чтобы не публиковать `links.txt` в репозитории:** файл `links.txt` уже попадает под маску `*.txt` в `.gitignore`. В CI он создаётся из секрета. Добавьте в репозитории **Settings → Secrets and variables → Actions** секрет с именем **`LINKS_FILE_CONTENT`** и значением - содержимое вашего `links.txt` (по одной URL на строку). Workflow перед запуском проверки запишет этот секрет во временный `links.txt`. Если секрет не задан, шаг «Create links.txt from secret» завершится с ошибкой. Если `links.txt` уже был закоммичен ранее, удалите его из истории и добавьте секрет: `git rm --cached links.txt` и коммит.

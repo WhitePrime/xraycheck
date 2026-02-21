@@ -45,13 +45,13 @@ available*.json
 # Частичные результаты при прерывании
 *_partial.txt
 
-# Результаты проверки в корне проекта (игнорируем файлы в корне)
+# Результаты проверки в корне (игнорируем старые .txt; без расширения — см. исключения ниже)
 /available*.txt
 /white-list_available*.txt
-# Исключения для директории configs/ и файлов в ней (должны быть отслежены в git)
+# Исключения: файлы результатов без расширения в configs/ (публикуются на GitHub Pages как .../configs/...)
 !configs/
-!configs/available.txt
-!configs/available(top100).txt
-!configs/white-list_available.txt
-!configs/white-list_available(top100).txt
+!configs/available
+!configs/available(top100)
+!configs/white-list_available
+!configs/white-list_available(top100)
 github_parser/

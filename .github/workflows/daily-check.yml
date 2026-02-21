@@ -1,4 +1,4 @@
-# Ежедневная проверка VLESS-ключей и публикация available.txt
+# Ежедневная проверка VLESS-ключей и публикация configs/available (без расширения)
 
 name: Daily VLESS check
 
@@ -18,7 +18,7 @@ concurrency:
 env:
   MODE: merge
   LINKS_FILE: links.txt
-  OUTPUT_FILE: available.txt
+  OUTPUT_FILE: available
   OUTPUT_DIR: configs
   OUTPUT_ADD_DATE: 'false'
   MAX_WORKERS: 200
@@ -82,27 +82,23 @@ jobs:
       - name: Run vless_checker.py
         run: python vless_checker.py
 
-      - name: Commit and push configs/available.txt and configs/available(top100).txt
+      - name: Commit and push configs/available and configs/available(top100)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           mkdir -p configs
-          if [ -f "configs/available.txt" ]; then
-            git add configs/available.txt
-          fi
-          if [ -f "configs/available(top100).txt" ]; then
-            git add "configs/available(top100).txt"
-          fi
+          if [ -f "configs/available" ]; then git add configs/available; fi
+          if [ -f "configs/available(top100)" ]; then git add "configs/available(top100)"; fi
           if ! git diff --cached --quiet; then
             NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
             OLD=$(cat configs/last-updated.json 2>/dev/null || echo '{}')
-            echo "$OLD" | jq -c --arg t "$NOW" '. + {"configs/available(top100).txt": $t, "configs/available.txt": $t}' > configs/last-updated.json
+            echo "$OLD" | jq -c --arg t "$NOW" '. + {"configs/available(top100)": $t, "configs/available": $t}' > configs/last-updated.json
             git add configs/last-updated.json
           fi
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update configs/available.txt and top100 [automated]"
+            git commit -m "chore: update configs/available and top100 [automated]"
             git pull --rebase origin "${{ github.ref_name }}"
             git push
           else
-            echo "configs/available.txt and top100 unchanged, skip push"
+            echo "configs/available and top100 unchanged, skip push"
           fi

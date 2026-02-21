@@ -1,6 +1,6 @@
-# Проверка конфигов в Docker (CIDR whitelist) и публикация white-list_available.txt
+# Проверка конфигов в Docker (CIDR whitelist) и публикация white-list_available (без расширения)
 # Запускается сразу после успешного завершения workflow "Daily VLESS check".
-# Берёт список ключей из available.txt (не из links.txt).
+# Берёт список ключей из configs/available (не из links.txt).
 
 name: Daily VLESS check (Docker / whitelist)
 
@@ -14,7 +14,7 @@ on:
 env:
   MODE: single
   LINKS_FILE: links.txt
-  OUTPUT_FILE: white-list_available.txt
+  OUTPUT_FILE: white-list_available
   OUTPUT_DIR: configs
   OUTPUT_ADD_DATE: 'false'
   MAX_WORKERS: 200
@@ -70,9 +70,9 @@ jobs:
       - name: Build Docker image
         run: docker compose build
 
-      - name: Run checker in Docker (input = available.txt from main)
+      - name: Run checker in Docker (input = configs/available from main)
         env:
-          AVAILABLE_URL: https://raw.githubusercontent.com/${{ github.repository }}/main/configs/available.txt
+          AVAILABLE_URL: https://raw.githubusercontent.com/${{ github.repository }}/main/configs/available
         run: |
           touch .before-docker-run
           docker compose run --rm \
@@ -110,42 +110,38 @@ jobs:
             -e TEST_POST_REQUESTS="$TEST_POST_REQUESTS" \
             vless-checker "$AVAILABLE_URL"
 
-      - name: Verify configs/white-list_available.txt and create top100 if missing
+      - name: Verify configs/white-list_available and create top100 if missing
         run: |
-          test -f "configs/white-list_available.txt" || (echo "::error::configs/white-list_available.txt not found" && exit 1)
-          if [ -f .before-docker-run ] && [ .before-docker-run -nt "configs/white-list_available.txt" ]; then
-            echo "::warning::configs/white-list_available.txt was not updated by Docker (0 results or checker wrote elsewhere), using existing file"
+          test -f "configs/white-list_available" || (echo "::error::configs/white-list_available not found" && exit 1)
+          if [ -f .before-docker-run ] && [ .before-docker-run -nt "configs/white-list_available" ]; then
+            echo "::warning::configs/white-list_available was not updated by Docker (0 results or checker wrote elsewhere), using existing file"
           fi
-          if [ ! -f "configs/white-list_available(top100).txt" ]; then
-            echo "configs/white-list_available(top100).txt not created by checker, creating from first 100 lines of main file"
+          if [ ! -f "configs/white-list_available(top100)" ]; then
+            echo "configs/white-list_available(top100) not created by checker, creating from first 100 lines of main file"
             mkdir -p configs
-            head -n 100 "configs/white-list_available.txt" > "configs/white-list_available(top100).txt"
+            head -n 100 "configs/white-list_available" > "configs/white-list_available(top100)"
           fi
           rm -f .before-docker-run
           echo "Output files:"
-          ls -la configs/white-list_available.txt "configs/white-list_available(top100).txt"
+          ls -la configs/white-list_available "configs/white-list_available(top100)"
 
-      - name: Commit and push configs/white-list_available.txt and configs/white-list_available(top100).txt
+      - name: Commit and push configs/white-list_available and configs/white-list_available(top100)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           mkdir -p configs
-          if [ -f "configs/white-list_available.txt" ]; then
-            git add configs/white-list_available.txt
-          fi
-          if [ -f "configs/white-list_available(top100).txt" ]; then
-            git add "configs/white-list_available(top100).txt"
-          fi
+          if [ -f "configs/white-list_available" ]; then git add configs/white-list_available; fi
+          if [ -f "configs/white-list_available(top100)" ]; then git add "configs/white-list_available(top100)"; fi
           if ! git diff --cached --quiet; then
             NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
             OLD=$(cat configs/last-updated.json 2>/dev/null || echo '{}')
-            echo "$OLD" | jq -c --arg t "$NOW" '. + {"configs/white-list_available(top100).txt": $t, "configs/white-list_available.txt": $t}' > configs/last-updated.json
+            echo "$OLD" | jq -c --arg t "$NOW" '. + {"configs/white-list_available(top100)": $t, "configs/white-list_available": $t}' > configs/last-updated.json
             git add configs/last-updated.json
           fi
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update configs/white-list_available.txt and top100 [Docker, automated]"
+            git commit -m "chore: update configs/white-list_available and top100 [Docker, automated]"
             git pull --rebase origin "${{ github.ref_name }}"
             git push
           else
-            echo "configs/white-list_available.txt and top100 unchanged, skip push"
+            echo "configs/white-list_available and top100 unchanged, skip push"
           fi

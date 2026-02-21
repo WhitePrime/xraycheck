@@ -35,7 +35,7 @@ def get_output_path(list_url: str) -> str:
     """Путь к файлу результата: OUTPUT_DIR/имя; при OUTPUT_ADD_DATE=false - OUTPUT_FILE как есть; иначе база + (источник_ДДММГГГГ).txt."""
     if not OUTPUT_ADD_DATE:
         base, ext = os.path.splitext(OUTPUT_FILE)
-        name = f"{base or 'available'}{ext or '.txt'}"
+        name = f"{base or 'available'}{ext}"
     else:
         base, ext = os.path.splitext(OUTPUT_FILE)
         base = base or "available"

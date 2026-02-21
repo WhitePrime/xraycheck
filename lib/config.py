@@ -44,7 +44,7 @@ def _env_bool(key: str, default: bool) -> bool:
 MODE = (_env("MODE", "single").strip().lower() or "single")
 LINKS_FILE = _env("LINKS_FILE", "links.txt")
 DEFAULT_LIST_URL = _env("DEFAULT_LIST_URL", "https://raw.githubusercontent.com/EtoNeYaProject/etoneyaproject.github.io/refs/heads/main/cidr")
-OUTPUT_FILE = _env("OUTPUT_FILE", "available.txt")
+OUTPUT_FILE = _env("OUTPUT_FILE", "available")
 # Директория для сохранения результатов проверки (txt, top100)
 OUTPUT_DIR = _env("OUTPUT_DIR", "configs")
 # Добавлять к имени файла дату и источник (OUTPUT_FILE без даты при false)
@@ -102,7 +102,7 @@ RETRY_DELAY_MULTIPLIER = _env_float("RETRY_DELAY_MULTIPLIER", 2.0)
 MAX_RESPONSE_TIME = _env_float("MAX_RESPONSE_TIME", 0)
 MIN_RESPONSE_SIZE = _env_int("MIN_RESPONSE_SIZE", 0)
 VERIFY_HTTPS_SSL = _env_bool("VERIFY_HTTPS_SSL", False)
-# Максимальная задержка (мс): серверы с задержкой выше не попадают в available.txt / white-list_available.txt
+# Максимальная задержка (мс): серверы с задержкой выше не попадают в available / white-list_available
 MAX_LATENCY_MS = _env_int("MAX_LATENCY_MS", 3000)
 
 if not VERIFY_HTTPS_SSL:

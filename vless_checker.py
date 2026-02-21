@@ -133,7 +133,7 @@ def main():
         console.print("[yellow]Нет ключей для проверки.[/yellow]")
         sys.exit(0)
 
-    # link -> полная строка (для сохранения в available.txt с метаданными)
+    # link -> полная строка (для сохранения в available с метаданными)
     link_to_full: dict[str, str] = {link: full for link, full in keys}
     links_only = [link for link, _ in keys]
     total = len(links_only)
@@ -299,10 +299,10 @@ def _create_top100_file(output_path: str, available_sorted: list[tuple[str, floa
     # Берем первые 100 элементов
     top100 = available_sorted[:100]
     
-    # Формируем имя файла: исходное_имя + (top100).txt (без пробела перед скобкой)
+    # Формируем имя файла: исходное_имя + (top100) + то же расширение (без расширения, если у основного файла его нет)
     base_path = Path(output_path)
     base_name = base_path.stem  # Имя без расширения
-    base_ext = base_path.suffix or ".txt"  # Расширение или .txt по умолчанию
+    base_ext = base_path.suffix  # Расширение как у основного файла (пусто — без расширения)
     top100_name = f"{base_name}(top100){base_ext}"
     top100_path = base_path.parent / top100_name
     

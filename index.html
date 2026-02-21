@@ -40,16 +40,18 @@
         }
 
         /* Header */
-        .header-top {
+
+        .section-icons {
             display: flex;
-            justify-content: flex-end;
+            justify-content: center;
             align-items: center;
-            margin-bottom: 3rem;
+            gap: 1rem;
+            margin-bottom: 1rem;
         }
 
-        .header-icon {
-            width: 40px;
-            height: 40px;
+        .section-icon {
+            width: 48px;
+            height: 48px;
             border: 1px solid var(--border);
             border-radius: 0.5rem;
             display: flex;
@@ -57,17 +59,18 @@
             justify-content: center;
             color: var(--text-muted);
             text-decoration: none;
-            transition: color 0.2s, border-color 0.2s;
+            transition: color 0.2s, border-color 0.2s, transform 0.2s;
         }
 
-        .header-icon:hover {
+        .section-icon:hover {
             color: var(--text);
             border-color: rgba(255, 255, 255, 0.25);
+            transform: scale(1.05);
         }
 
-        .header-icon svg {
-            width: 20px;
-            height: 20px;
+        .section-icon svg {
+            width: 24px;
+            height: 24px;
         }
 
         .header-title {
@@ -96,7 +99,7 @@
             color: var(--text-muted);
             font-weight: 400;
             max-width: 420px;
-            margin: 0 auto;
+            margin: 0 auto 2rem;
         }
 
         /* Section */
@@ -106,8 +109,9 @@
             color: var(--text-muted);
             text-transform: uppercase;
             letter-spacing: 0.08em;
-            margin-top: 8rem;
+            margin-top: 2rem;
             margin-bottom: 1rem;
+            text-align: center;
         }
 
         .config-list {
@@ -237,6 +241,64 @@
             transform: translateX(-50%) translateY(0);
         }
 
+        /* VPN clients table */
+        .vpn-section {
+            margin-top: 4rem;
+        }
+
+        .vpn-table-wrap {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 0.75rem;
+            overflow: hidden;
+        }
+
+        .vpn-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+        }
+
+        .vpn-table th {
+            text-align: left;
+            padding: 1rem 1.25rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 0.75rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .vpn-table td {
+            padding: 0.75rem 1.25rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text);
+            vertical-align: top;
+        }
+
+        .vpn-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .vpn-table a {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 500;
+            display: inline-block;
+            margin-bottom: 0.35rem;
+        }
+
+        .vpn-table a:hover {
+            color: var(--accent-hover);
+            text-decoration: underline;
+        }
+
+        .vpn-table a:last-child {
+            margin-bottom: 0;
+        }
+
         /* Footer */
         .footer {
             text-align: center;
@@ -255,23 +317,36 @@
                 justify-content: flex-end;
                 flex-wrap: wrap;
             }
+
+            .vpn-table-wrap {
+                overflow-x: auto;
+            }
+
+            .vpn-table th,
+            .vpn-table td {
+                padding: 0.6rem 0.75rem;
+                font-size: 0.8125rem;
+            }
         }
     </style>
 </head>
 <body>
     <div class="page">
         <header>
-            <div class="header-top">
-                <a href="https://github.com/WhitePrime/xraycheck" class="header-icon" target="_blank" rel="noopener noreferrer" title="GitHub repository">
-                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-                </a>
-            </div>
             <div class="header-title">
                 <h1><span class="brand">X-Ray.</span><span class="brand-accent">Configs</span></h1>
             </div>
             <p class="header-subtitle">Free, updated X-Ray configurations for secure and private internet access</p>
         </header>
 
+        <div class="section-icons">
+            <a href="https://t.me/XRayCheckSupportBot" class="section-icon" target="_blank" rel="noopener noreferrer" title="XRayCheck Support в Telegram">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+            </a>
+            <a href="https://github.com/WhitePrime/xraycheck" class="section-icon" target="_blank" rel="noopener noreferrer" title="GitHub repository">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+            </a>
+        </div>
         <h2 class="section-title">Available configurations</h2>
         <div class="config-list">
             <article class="config-card">
@@ -331,6 +406,36 @@
                     <span class="action-group"><span class="action-label">Mirror:</span><button type="button" class="action-btn" data-copy-link data-href="https://translate.yandex.ru/translate?url=https://whiteprime.github.io/xraycheck/configs/white-list_available&lang=en-en" title="Зеркало (копировать ссылку)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></span>
                 </div>
             </article>
+        </div>
+
+        <h2 class="section-title vpn-section">VPN clients</h2>
+        <div class="vpn-table-wrap">
+            <table class="vpn-table">
+                <thead>
+                    <tr>
+                        <th>Android</th>
+                        <th>Windows</th>
+                        <th>Apple</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><a href="https://github.com/dyhkwong/Exclave/releases/" target="_blank" rel="noopener noreferrer">Exclave</a></td>
+                        <td><a href="https://storage.v2raytun.com/v2RayTun_Setup.exe" target="_blank" rel="noopener noreferrer">v2RayTun</a></td>
+                        <td><a href="https://apps.apple.com/en/app/v2raytun/id6476628951" target="_blank" rel="noopener noreferrer">v2RayTun</a></td>
+                    </tr>
+                    <tr>
+                        <td><a href="https://play.google.com/store/apps/details?id=com.v2raytun.android" target="_blank" rel="noopener noreferrer">v2rayTun</a></td>
+                        <td><a href="https://github.com/throneproj/Throne/releases" target="_blank" rel="noopener noreferrer">Throne</a></td>
+                        <td><a href="https://apps.apple.com/ru/app/v2box-v2ray-client/id6446814690" target="_blank" rel="noopener noreferrer">V2Box</a></td>
+                    </tr>
+                    <tr>
+                        <td><a href="https://play.google.com/store/apps/details?id=com.happproxy" target="_blank" rel="noopener noreferrer">Happ</a></td>
+                        <td><a href="https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe" target="_blank" rel="noopener noreferrer">Happ</a></td>
+                        <td><a href="https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973" target="_blank" rel="noopener noreferrer">Happ</a></td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
 
         <p class="footer">Configurations are updated automatically</p>

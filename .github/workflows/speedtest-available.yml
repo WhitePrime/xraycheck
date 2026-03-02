@@ -32,7 +32,7 @@ env:
   SPEED_TEST_DOWNLOAD_TIMEOUT: 25
   SPEED_TEST_DOWNLOAD_URL_SMALL: https://speed.cloudflare.com/__down?bytes=250000
   SPEED_TEST_DOWNLOAD_URL_MEDIUM: https://speed.cloudflare.com/__down?bytes=1000000
-  MIN_SPEED_THRESHOLD_MBPS: 4
+  MIN_SPEED_THRESHOLD_MBPS: 2.5
   SPEED_TEST_DEBUG: 'false'
   OUTPUT_DIR: configs
   VERIFY_HTTPS_SSL: 'false'

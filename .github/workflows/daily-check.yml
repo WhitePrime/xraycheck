@@ -53,19 +53,19 @@ env:
 
   # Speedtest (после checker: результат в available и available(top100))
   SPEED_TEST_ENABLED: 'true'
-  SPEED_TEST_TIMEOUT: 4
+  SPEED_TEST_TIMEOUT: 5
   SPEED_TEST_MODE: full
   SPEED_TEST_METRIC: latency
   SPEED_TEST_OUTPUT: separate_file
-  SPEED_TEST_REQUESTS: 8
+  SPEED_TEST_REQUESTS: 10
   SPEED_TEST_URL: https://www.gstatic.com/generate_204
   SPEED_TEST_WORKERS: 1000
-  SPEED_TEST_DOWNLOAD_TIMEOUT: 30
+  SPEED_TEST_DOWNLOAD_TIMEOUT: 25
   SPEED_TEST_DOWNLOAD_URL_SMALL: https://speed.cloudflare.com/__down?bytes=250000
   SPEED_TEST_DOWNLOAD_URL_MEDIUM: https://speed.cloudflare.com/__down?bytes=1000000
   MIN_SPEED_THRESHOLD_MBPS: 2.5
   SPEED_TEST_DEBUG: 'false'
-  XRAY_STARTUP_WAIT: 1.8
+  XRAY_STARTUP_WAIT: 2.2
   XRAY_STARTUP_POLL_INTERVAL: 0.2
   XRAY_PORT_WAIT: 10
   BASE_PORT: 20000

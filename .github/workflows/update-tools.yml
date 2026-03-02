@@ -1,0 +1,77 @@
+# Устанавливает или обновляет бинарники Xray и Hysteria в tools/.
+# Если их нет в репо - ставит (сначала пробует latest, при 403 - фиксированная версия).
+# Если есть - пробует обновить до latest; при rate limit оставляет текущие.
+# Результат коммитится в репо, остальные workflow используют tools/xray и tools/hysteria без загрузки.
+
+name: Update tools
+
+on:
+  schedule:
+    # Раз в неделю (воскресенье 03:00 UTC)
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+
+jobs:
+  update-binaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    outputs:
+      stats_workflow_name: ${{ steps.telegram_stats.outputs.workflow_name }}
+      stats_duration: ${{ steps.telegram_stats.outputs.duration }}
+    steps:
+      - name: Record start time
+        id: start
+        run: echo "started_at=$(date -u +%s)" >> $GITHUB_OUTPUT
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Xray and Hysteria (install or update)
+        run: bash tools/update-binaries.sh
+
+      - name: Commit and push if tools changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git status --porcelain | grep -q ' tools/'; then
+            git add tools/xray tools/hysteria 2>/dev/null || true
+            if git diff --cached --quiet; then
+              echo "No changes to commit"
+            else
+              git commit -m "chore(tools): update Xray and Hysteria binaries [automated]"
+              git push
+            fi
+          else
+            echo "tools/ unchanged, skip push"
+          fi
+
+      - name: Prepare Telegram stats
+        id: telegram_stats
+        run: |
+          END=$(date -u +%s)
+          START=${{ steps.start.outputs.started_at }}
+          DURATION_SEC=$(( END - START ))
+          printf -v DURATION "%d:%02d" $(( DURATION_SEC / 60 )) $(( DURATION_SEC % 60 ))
+          echo "workflow_name=Update tools" >> $GITHUB_OUTPUT
+          echo "duration=$DURATION" >> $GITHUB_OUTPUT
+
+  notify-telegram:
+    needs: update-binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Send workflow stats to Telegram
+        uses: ./.github/actions/telegram-workflow-stats
+        with:
+          workflow_name: ${{ needs.update-binaries.outputs.stats_workflow_name }}
+          keys_in: ''
+          keys_out: ''
+          duration: ${{ needs.update-binaries.outputs.stats_duration }}
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}

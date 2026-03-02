@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>X-Ray.Check</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --background: #fafafa;
+            --foreground: #0a0a0a;
+            --card: #ffffff;
+            --card-border: #e5e5e5;
+            --muted: #737373;
+            --muted-foreground: #a3a3a3;
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --primary: #18181b;
+            --ring: rgba(37, 99, 235, 0.3);
+            --radius: 0.75rem;
+            --radius-lg: 1rem;
+            --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--background);
+            color: var(--foreground);
+            min-height: 100vh;
+            padding: 3rem 1.5rem 4rem;
+            line-height: 1.6;
+        }
+
+        .page {
+            max-width: 720px;
+            margin: 0 auto;
+        }
+
+        /* Header — hero style like ReactViTenStack */
+        header {
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+
+        .section-icons {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .section-icon {
+            width: 44px;
+            height: 44px;
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius);
+            background: var(--card);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--muted);
+            text-decoration: none;
+            transition: color 0.2s, border-color 0.2s, box-shadow 0.2s;
+            box-shadow: var(--shadow);
+        }
+
+        .section-icon:hover {
+            color: var(--accent);
+            border-color: var(--accent);
+            box-shadow: var(--shadow-md);
+        }
+
+        .section-icon svg {
+            width: 22px;
+            height: 22px;
+        }
+
+        .header-title {
+            margin-bottom: 0.5rem;
+        }
+
+        .header-title h1 {
+            font-size: clamp(2rem, 5vw, 3rem);
+            font-weight: 700;
+            letter-spacing: -0.025em;
+            line-height: 1.2;
+            color: var(--primary);
+        }
+
+        .header-title .brand {
+            color: var(--primary);
+        }
+
+        .header-title .brand-accent {
+            color: var(--accent);
+        }
+
+        .header-subtitle {
+            font-size: 1rem;
+            color: var(--muted-foreground);
+            font-weight: 400;
+            max-width: 420px;
+            margin: 0 auto;
+        }
+
+        /* Section title — small caps / label style */
+        .section-title {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+
+        .config-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        /* Cards — Shadcn-style: white, border, rounded-lg, subtle shadow */
+        .config-card {
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-lg);
+            padding: 1.25rem 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+            box-shadow: var(--shadow);
+            transition: box-shadow 0.2s, border-color 0.2s;
+        }
+
+        .config-card:hover {
+            box-shadow: var(--shadow-md);
+            border-color: #d4d4d4;
+        }
+
+        .config-card .download-icon {
+            width: 40px;
+            height: 40px;
+            color: var(--muted);
+            flex-shrink: 0;
+        }
+
+        .config-card .download-icon svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .config-card .info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .config-card .title-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .config-card .title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--foreground);
+        }
+
+        .config-card .badge {
+            font-size: 0.6875rem;
+            font-weight: 600;
+            padding: 0.2rem 0.5rem;
+            border-radius: 9999px;
+            background: rgba(37, 99, 235, 0.12);
+            color: var(--accent);
+        }
+
+        .config-card .updated {
+            font-size: 0.8125rem;
+            color: var(--muted-foreground);
+            margin-top: 0.25rem;
+        }
+
+        .config-card .actions {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .config-card .action-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        .config-card .action-label {
+            font-size: 0.75rem;
+            color: var(--muted);
+            font-weight: 500;
+        }
+
+        .config-card .action-btn {
+            height: 40px;
+            padding: 0 0.75rem;
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius);
+            background: var(--card);
+            color: var(--muted);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+            transition: color 0.2s, border-color 0.2s, background 0.2s;
+            box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+            font-size: 0.75rem;
+            font-weight: 500;
+            font-family: inherit;
+        }
+
+        .config-card .action-btn:hover {
+            color: var(--accent);
+            border-color: var(--accent);
+            background: rgba(37, 99, 235, 0.06);
+        }
+
+        .config-card .action-btn svg {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+
+        /* Copy notice */
+        .copy-notice {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%) translateY(8px);
+            padding: 0.75rem 1.5rem;
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius);
+            font-size: 0.875rem;
+            color: var(--foreground);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s, transform 0.2s;
+            z-index: 100;
+            box-shadow: var(--shadow-md);
+        }
+
+        .copy-notice.is-visible {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        /* VPN clients table — collapsible card */
+        .vpn-section {
+            margin-top: 2.5rem;
+        }
+
+        .vpn-collapsible {
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .vpn-collapsible-trigger {
+            width: 100%;
+            padding: 1rem 1.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font: inherit;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            text-align: left;
+            transition: background 0.2s, color 0.2s;
+        }
+
+        .vpn-collapsible-trigger:hover {
+            background: #fafafa;
+            color: var(--foreground);
+        }
+
+        .vpn-collapsible-trigger .vpn-chevron {
+            flex-shrink: 0;
+            width: 20px;
+            height: 20px;
+            color: var(--muted);
+            transition: transform 0.2s;
+        }
+
+        .vpn-collapsible.is-open .vpn-chevron {
+            transform: rotate(180deg);
+        }
+
+        .vpn-collapsible-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.25s ease-out;
+        }
+
+        .vpn-collapsible.is-open .vpn-collapsible-content {
+            max-height: 400px;
+            transition: max-height 0.3s ease-in;
+        }
+
+        .vpn-table-wrap {
+            background: var(--card);
+            border-top: 1px solid var(--card-border);
+            overflow: hidden;
+        }
+
+        .vpn-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+        }
+
+        .vpn-table th {
+            text-align: left;
+            padding: 1rem 1.25rem;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 0.75rem;
+            background: #fafafa;
+            border-bottom: 1px solid var(--card-border);
+        }
+
+        .vpn-table td {
+            padding: 0.75rem 1.25rem;
+            border-bottom: 1px solid var(--card-border);
+            color: var(--foreground);
+            vertical-align: top;
+        }
+
+        .vpn-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .vpn-table a {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 500;
+            display: inline-block;
+            margin-bottom: 0.35rem;
+        }
+
+        .vpn-table a:hover {
+            color: var(--accent-hover);
+            text-decoration: underline;
+        }
+
+        .vpn-table a:last-child {
+            margin-bottom: 0;
+        }
+
+        .view-counter {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+            text-align: center;
+            margin-top: 0.75rem;
+            font-size: 0.75rem;
+            color: var(--muted-foreground);
+        }
+
+        .view-counter .view-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #22c55e;
+            flex-shrink: 0;
+            animation: view-dot-blink 1.4s ease-in-out infinite;
+        }
+
+        @keyframes view-dot-blink {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
+            50% { opacity: 0.5; box-shadow: 0 0 0 4px rgba(34, 197, 94, 0); }
+        }
+
+        .view-counter span {
+            font-weight: 600;
+            color: var(--foreground);
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 2.5rem;
+            font-size: 0.8125rem;
+            color: var(--muted-foreground);
+        }
+
+        .footer a {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .footer a:hover {
+            color: var(--accent-hover);
+            text-decoration: underline;
+        }
+
+        @media (max-width: 640px) {
+            body {
+                padding: 2rem 1rem 3rem;
+            }
+
+            .config-card {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .config-card .actions {
+                justify-content: flex-end;
+                flex-wrap: wrap;
+            }
+
+            .vpn-table-wrap {
+                overflow-x: auto;
+            }
+
+            .vpn-table th,
+            .vpn-table td {
+                padding: 0.6rem 0.75rem;
+                font-size: 0.8125rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <header>
+            <div class="section-icons">
+                <a href="https://t.me/xraycheck" class="section-icon" target="_blank" rel="noopener noreferrer" title="XRayCheck в Telegram">
+                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                </a>
+                <a href="https://github.com/WhitePrime/xraycheck" class="section-icon" target="_blank" rel="noopener noreferrer" title="GitHub repository">
+                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                </a>
+            </div>
+            <div class="header-title">
+                <h1><span class="brand">X-Ray.</span><span class="brand-accent">Check</span></h1>
+            </div>
+            <p class="view-counter"><span class="view-dot" aria-hidden="true"></span> <span id="busuanzi_value_page_pv">-</span></p>
+            <p class="header-subtitle"></p>
+        </header>
+
+        <h2 class="section-title">Configurations updated automatically</h2>
+        <div class="config-list">
+            <article class="config-card">
+                <span class="download-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></span>
+                <div class="info">
+                    <div class="title-row">
+                        <span class="title">White List Speedtest</span>
+                        <span class="badge">Experimental</span>
+                    </div>
+                    <div class="updated" data-file="configs/white-list_available_st">Updated automatically</div>
+                </div>
+                <div class="actions">
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-href="https://whiteprime.github.io/xraycheck/configs/white-list_available_st" title="Copy link"><span class="action-btn-text">FULL</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></span>
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-href="https://whiteprime.github.io/xraycheck/configs/white-list_available_st(top100)" title="Copy link"><span class="action-btn-text">TOP 100</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></span>
+                </div>
+            </article>
+
+            <article class="config-card">
+                <span class="download-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></span>
+                <div class="info">
+                    <div class="title-row">
+                        <span class="title">Available Speedtest</span>
+                        <span class="badge">Experimental</span>
+                    </div>
+                    <div class="updated" data-file="configs/available_st">Updated automatically</div>
+                </div>
+                <div class="actions">
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-href="https://whiteprime.github.io/xraycheck/configs/available_st" title="Copy link"><span class="action-btn-text">FULL</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></span>
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-href="https://whiteprime.github.io/xraycheck/configs/available_st(top100)" title="Copy link"><span class="action-btn-text">TOP 100</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></span>
+                </div>
+            </article>
+
+            <article class="config-card">
+                <span class="download-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></span>
+                <div class="info">
+                    <div class="title-row">
+                        <span class="title">Available</span>
+                    </div>
+                    <div class="updated" data-file="configs/available">Updated automatically</div>
+                </div>
+                <div class="actions">
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-href="https://whiteprime.github.io/xraycheck/configs/available" title="Copy link"><span class="action-btn-text">FULL</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></span>
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-href="https://whiteprime.github.io/xraycheck/configs/available(top100)" title="Copy link"><span class="action-btn-text">TOP 100</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></span>
+                </div>
+            </article>
+
+            <article class="config-card">
+                <span class="download-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></span>
+                <div class="info">
+                    <div class="title-row">
+                        <span class="title">White List</span>
+                    </div>
+                    <div class="updated" data-file="configs/white-list_available">Updated automatically</div>
+                </div>
+                <div class="actions">
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-href="https://whiteprime.github.io/xraycheck/configs/white-list_available" title="Copy link"><span class="action-btn-text">FULL</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></span>
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-href="https://whiteprime.github.io/xraycheck/configs/white-list_available(top100)" title="Copy link"><span class="action-btn-text">TOP 100</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></span>
+                </div>
+            </article>
+        </div>
+
+        <div class="vpn-section vpn-collapsible" id="vpn-collapsible">
+            <button type="button" class="vpn-collapsible-trigger" id="vpn-collapsible-trigger" aria-expanded="false" aria-controls="vpn-collapsible-content">
+                <span>VPN clients</span>
+                <svg class="vpn-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div class="vpn-collapsible-content" id="vpn-collapsible-content" role="region">
+                <div class="vpn-table-wrap">
+                    <table class="vpn-table">
+                        <thead>
+                            <tr>
+                                <th>Android</th>
+                                <th>Windows</th>
+                                <th>Apple</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><a href="https://github.com/dyhkwong/Exclave/releases/" target="_blank" rel="noopener noreferrer">Exclave</a></td>
+                                <td><a href="https://github.com/throneproj/Throne/releases" target="_blank" rel="noopener noreferrer">Throne</a></td>
+                                <td><a href="https://apps.apple.com/ru/app/v2box-v2ray-client/id6446814690" target="_blank" rel="noopener noreferrer">V2Box</a></td>
+                            </tr>
+                            <tr>
+                                <td><a href="https://play.google.com/store/apps/details?id=com.v2raytun.android" target="_blank" rel="noopener noreferrer">v2rayTun</a></td>
+                                <td><a href="https://storage.v2raytun.com/v2RayTun_Setup.exe" target="_blank" rel="noopener noreferrer">v2RayTun</a></td>
+                                <td><a href="https://apps.apple.com/en/app/v2raytun/id6476628951" target="_blank" rel="noopener noreferrer">v2RayTun</a></td>
+                            </tr>
+                            <tr>
+                                <td><a href="https://play.google.com/store/apps/details?id=com.happproxy" target="_blank" rel="noopener noreferrer">Happ</a></td>
+                                <td><a href="https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe" target="_blank" rel="noopener noreferrer">Happ</a></td>
+                                <td><a href="https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973" target="_blank" rel="noopener noreferrer">Happ</a></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <p class="footer">Made with ❤️ by <a href="https://github.com/WhitePrime" target="_blank" rel="noopener noreferrer">White Prime</a></p>
+    </div>
+
+    <div class="copy-notice" id="copy-notice" aria-live="polite">Link copied</div>
+
+    <script>
+        (function() {
+            var notice = document.getElementById('copy-notice');
+            function showNotice() {
+                if (notice) {
+                    notice.classList.add('is-visible');
+                    setTimeout(function() { notice.classList.remove('is-visible'); }, 2000);
+                }
+            }
+            function copyUrl(url) {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(url).then(showNotice).catch(fallback);
+                } else {
+                    fallback();
+                }
+                function fallback() {
+                    var ta = document.createElement('textarea');
+                    ta.value = url;
+                    ta.setAttribute('readonly', '');
+                    ta.style.position = 'absolute';
+                    ta.style.left = '-9999px';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    try {
+                        document.execCommand('copy');
+                        showNotice();
+                    } catch (e) {}
+                    document.body.removeChild(ta);
+                }
+            }
+            document.querySelectorAll('[data-copy-link][data-href]').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var url = this.getAttribute('data-href');
+                    if (url) copyUrl(url);
+                });
+            });
+
+            (function() {
+                var block = document.getElementById('vpn-collapsible');
+                var trigger = document.getElementById('vpn-collapsible-trigger');
+                var content = document.getElementById('vpn-collapsible-content');
+                if (block && trigger && content) {
+                    trigger.addEventListener('click', function() {
+                        var isOpen = block.classList.toggle('is-open');
+                        trigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+                    });
+                }
+            })();
+
+            function formatMsk(isoDateStr) {
+                var d = new Date(isoDateStr);
+                var timeStr = d.toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit', hour12: false });
+                var dateStr = d.toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', year: 'numeric' });
+                return timeStr + ' ' + dateStr;
+            }
+            function setUpdated(el, text, count) {
+                if (!el) return;
+                el.textContent = 'Updated: ' + text + (count != null ? ' · ' + count.toLocaleString('ru-RU') + ' configs' : '');
+            }
+            fetch('configs/last-updated.json')
+                .then(function(r) { return r.ok ? r.json() : Promise.reject(); })
+                .then(function(data) {
+                    if (!data || typeof data !== 'object') return;
+                    document.querySelectorAll('.updated[data-file]').forEach(function(el) {
+                        var path = el.getAttribute('data-file');
+                        var val = path && data[path];
+                        if (!val) return;
+                        var iso = typeof val === 'string' ? val : val.updated;
+                        var count = typeof val === 'object' && val.count != null ? val.count : null;
+                        if (iso) setUpdated(el, formatMsk(iso), count);
+                    });
+                })
+                .catch(function() {});
+        })();
+    </script>
+    <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+</body>
+</html>

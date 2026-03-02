@@ -1,0 +1,64 @@
+# Локальная конфигурация и результат проверки
+.env
+
+# Текстовые файлы (кроме README.md)
+*.txt
+!requirements.txt
+*.md
+!README.md
+!tools/README.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+*.egg-info/
+.eggs/
+
+# Xray (автоустановка скриптом при запуске)
+xray_dist/
+xray-dist/
+
+# Hysteria (автозагрузка чекером)
+.hysteria/
+
+# Временные и системные
+*.log
+.DS_Store
+Thumbs.db
+
+# Метрики и аналитика
+metrics.json
+metrics_*.json
+*_metrics.json
+
+# Кэш результатов проверки
+.checker_cache.json
+checker_cache.json
+
+# Экспорт результатов
+exports/
+# HTML экспорт результатов проверки
+available*.html
+# CSV экспорт результатов проверки
+available*.csv
+# JSON экспорт результатов проверки (кроме метрик)
+available*.json
+# Частичные результаты при прерывании
+*_partial.txt
+
+# Результаты проверки в корне (игнорируем старые .txt; без расширения - см. исключения ниже)
+/available*.txt
+/white-list_available*.txt
+# Исключения: файлы результатов без расширения в configs/ (публикуются на GitHub Pages как .../configs/...)
+!configs/
+!configs/available
+!configs/available(top100)
+!configs/white-list_available
+!configs/white-list_available(top100)
+github_parser/
+
+# SQLite notworkers DB хранится в кэше/артефактах, не в git
+configs/notworkers.db

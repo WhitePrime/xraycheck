@@ -1,0 +1,16 @@
+# Не копировать в образ
+xray_dist/
+.env
+available.txt
+available
+available(top100)
+white-list_available
+white-list_available(top100)
+*.md
+.git
+.gitignore
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.zip

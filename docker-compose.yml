@@ -1,0 +1,24 @@
+# Запуск проверки VLESS в контейнере с эмуляцией ограничения по CIDR whitelist.
+# Исходящий доступ разрешён только к подсетям из CIDR whitelist и к IP хостов прокси из списка ключей.
+# Результат записывается в configs/ на хосте.
+
+services:
+  vless-checker:
+    build: .
+    container_name: vless-check
+    # Нужно для настройки iptables внутри контейнера
+    cap_add:
+      - NET_ADMIN
+    env_file:
+      - .env
+    environment:
+      - DEFAULT_LIST_URL=${DEFAULT_LIST_URL:-https://raw.githubusercontent.com/EtoNeYaProject/etoneyaproject.github.io/refs/heads/main/cidr}
+      - CIDR_WHITELIST_URL=${CIDR_WHITELIST_URL:-https://raw.githubusercontent.com/hxehex/russia-mobile-internet-whitelist/refs/heads/main/cidrwhitelist.txt}
+      - OUTPUT_FILE=white-list_available
+      - OUTPUT_DIR=configs
+    volumes:
+      # Корень проекта в /app: скрипт пишет в configs/ -> файлы на хосте
+      - .:/app
+    # Передать URL списка ключей аргументом при необходимости: docker compose run --rm vless-checker "https://..."
+    stdin_open: true
+    tty: true

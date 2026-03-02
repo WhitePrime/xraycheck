@@ -1,0 +1,477 @@
+# Проверка конфигов в Docker (CIDR whitelist) и публикация white-list_available (без расширения).
+# Сначала проверка в контейнере (CIDR), затем speedtest по скорости; на выходе - два файла с дополнительной проверкой по скорости.
+# Запускается сразу после успешного завершения workflow "Daily VLESS check". Берёт список ключей из configs/available.
+
+name: Daily DOCKER check
+
+on:
+  workflow_run:
+    workflows: ["Daily check"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: xraycheck-serial
+  cancel-in-progress: false
+
+env:
+  MODE: single
+  LINKS_FILE: links.txt
+  OUTPUT_FILE: white-list_available
+  OUTPUT_DIR: configs
+  OUTPUT_ADD_DATE: 'false'
+  MAX_WORKERS: 700
+  EXPORT_FORMAT: txt
+  ENABLE_CACHE: 'false'
+  TEST_URLS: http://www.google.com/generate_204,http://www.cloudflare.com/cdn-cgi/trace
+  TEST_URLS_HTTPS: https://www.gstatic.com/generate_204
+  REQUIRE_HTTPS: 'true'
+  STRONG_STYLE_TEST: 'true'
+  STRONG_STYLE_TIMEOUT: 12
+  STRONG_MAX_RESPONSE_TIME: 3
+  STRONG_DOUBLE_CHECK: 'true'
+  STRONG_ATTEMPTS: 3
+  REQUESTS_PER_URL: 2
+  MIN_SUCCESSFUL_REQUESTS: 2
+  MIN_SUCCESSFUL_URLS: 2
+  REQUEST_DELAY: 0.1
+  CONNECT_TIMEOUT: 6
+  CONNECT_TIMEOUT_SLOW: 15
+  USE_ADAPTIVE_TIMEOUT: 'false'
+  MAX_RETRIES: 1
+  MAX_RESPONSE_TIME: 6
+  MIN_RESPONSE_SIZE: 0
+  MAX_LATENCY_MS: 2000
+  VERIFY_HTTPS_SSL: 'false'
+  STABILITY_CHECKS: 2
+  STABILITY_CHECK_DELAY: 2.0
+  STRICT_MODE: 'true'
+  STRICT_MODE_REQUIRE_ALL: 'true'
+  TEST_POST_REQUESTS: 'false'
+
+  # Speedtest (после проверки в Docker: фильтр по скорости, результат в white-list_available)
+  SPEED_TEST_ENABLED: 'true'
+  SPEED_TEST_TIMEOUT: 4
+  SPEED_TEST_MODE: full
+  SPEED_TEST_METRIC: latency
+  SPEED_TEST_OUTPUT: separate_file
+  SPEED_TEST_REQUESTS: 8
+  SPEED_TEST_URL: https://www.gstatic.com/generate_204
+  SPEED_TEST_WORKERS: 700
+  SPEED_TEST_DOWNLOAD_TIMEOUT: 30
+  SPEED_TEST_DOWNLOAD_URL_SMALL: https://speed.cloudflare.com/__down?bytes=250000
+  SPEED_TEST_DOWNLOAD_URL_MEDIUM: https://speed.cloudflare.com/__down?bytes=1000000
+  MIN_SPEED_THRESHOLD_MBPS: 2.5
+  SPEED_TEST_DEBUG: 'false'
+  XRAY_STARTUP_WAIT: 1.8
+  XRAY_STARTUP_POLL_INTERVAL: 0.2
+  XRAY_PORT_WAIT: 10
+  BASE_PORT: 20000
+
+  # strip_vpn_comments.py: текст комментария (после флага страны) для проверенных конфигов
+  AUTO_COMMENT: ' verified · t.me/XRayCheck'
+  # Docker-проверка не обновляет configs/notworkers (только white-list_available)
+  NOTWORKERS_UPDATE_ENABLED: 'false'
+
+jobs:
+  docker-check-and-publish:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    outputs:
+      stats_workflow_name: ${{ steps.telegram_stats.outputs.workflow_name }}
+      stats_keys_in: ${{ steps.telegram_stats.outputs.keys_in }}
+      stats_keys_out: ${{ steps.telegram_stats.outputs.keys_out }}
+      stats_duration: ${{ steps.telegram_stats.outputs.duration }}
+    env:
+      XRAY_PATH: ${{ github.workspace }}/tools/xray
+      HYSTERIA_PATH: ${{ github.workspace }}/tools/hysteria
+
+    steps:
+      - name: Record start time
+        id: start
+        run: echo "started_at=$(date -u +%s)" >> $GITHUB_OUTPUT
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Ensure .env exists for docker compose
+        run: touch .env
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: docker compose build
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Setup Xray and Hysteria binaries
+        run: bash tools/setup-binaries.sh
+
+      - name: Backup existing white-list_available and white-list_available(top100)
+        run: |
+          mkdir -p configs
+          if [ -f "configs/white-list_available" ] && [ -s "configs/white-list_available" ]; then
+            cp "configs/white-list_available" "configs/white-list_available_backup"
+            echo "Backed up configs/white-list_available"
+          fi
+          if [ -f "configs/white-list_available(top100)" ] && [ -s "configs/white-list_available(top100)" ]; then
+            cp "configs/white-list_available(top100)" "configs/white-list_available_top100_backup"
+            echo "Backed up configs/white-list_available(top100)"
+          fi
+
+      - name: Merge with previous white-list_available (deduplicate by normalized link)
+        run: |
+          python -c "
+          import os
+          import sys
+          sys.path.insert(0, os.getcwd())
+          from lib.parsing import normalize_proxy_link
+
+          def log(msg):
+              print(msg, flush=True)
+
+          avail = 'configs/available'
+          wl = 'configs/white-list_available'
+          if not os.path.isfile(avail) or os.path.getsize(avail) == 0:
+              sys.exit(0)
+          log('')
+          log('=== daily-check-docker: сводка по объединению списка ===')
+          log('Порядок: сначала white-list_available (приоритет строк с комментарием), затем available.')
+          lines_by_norm = {}
+          for path, label in ((wl, 'configs/white-list_available'), (avail, 'configs/available')):
+              if not os.path.isfile(path) or os.path.getsize(path) == 0:
+                  log(f'[1] {label}: файл отсутствует или пуст -> 0 записей')
+                  continue
+              added_this = 0
+              with open(path, 'r', encoding='utf-8') as f:
+                  for line in f:
+                      s = line.rstrip(chr(10)).strip()
+                      if not s or s.startswith('#'):
+                          continue
+                      link = s.split('#', 1)[0].strip() if '#' in s else s.split(maxsplit=1)[0].strip()
+                      norm = normalize_proxy_link(link)
+                      if norm and norm not in lines_by_norm:
+                          lines_by_norm[norm] = s
+                          added_this += 1
+              log(f'[1] {label}: добавлено уникальных по нормализованному ключу +{added_this} (всего накоплено: {len(lines_by_norm)})')
+          if not lines_by_norm:
+              log('Итого: 0 конфигов, выход.')
+              sys.exit(0)
+          merged = list(lines_by_norm.values())
+          with open(avail, 'w', encoding='utf-8') as f:
+              f.write(chr(10).join(merged) + chr(10))
+          log(f'[2] Итого объединённый список: {len(merged)} уникальных конфигов (записано в configs/available для передачи в Docker)')
+          log('=== конец сводки ===')
+          log('')
+          "
+
+      - name: Filter excluded endpoints
+        env:
+          EXCLUDE_ENDPOINTS: ${{ vars.EXCLUDE_ENDPOINTS }}
+          EXCLUDE_ENDPOINTS_LOG_DETAILS: "false"
+        run: |
+          if [ -f "configs/available" ] && [ -s "configs/available" ]; then
+            python filter_excluded_endpoints.py configs/available > configs/available_filt.txt && mv configs/available_filt.txt configs/available
+          fi
+
+      # В контейнере проверяются все протоколы: VLESS, VMess, Trojan, Shadowsocks, Hysteria.
+      # Список передаётся через stdin, чтобы контейнер получил все 110 строк без потерь при монтировании.
+      - name: "Run checker in Docker (all protocols: Xray + Hysteria)"
+        env:
+          AVAILABLE_URL: https://raw.githubusercontent.com/${{ github.repository }}/main/configs/available
+        run: |
+          touch .before-docker-run
+          if [ -f "configs/available" ] && [ -s "configs/available" ]; then
+            N=$(wc -l < "configs/available" | tr -d ' ')
+            echo "Передача в контейнер: $N строк из configs/available (через stdin)"
+            cat configs/available | docker compose run --rm -T \
+            -e OUTPUT_FILE="$OUTPUT_FILE" \
+            -e OUTPUT_DIR="$OUTPUT_DIR" \
+            -e MODE="$MODE" \
+            -e NOTWORKERS_UPDATE_ENABLED="$NOTWORKERS_UPDATE_ENABLED" \
+            -e OUTPUT_ADD_DATE="$OUTPUT_ADD_DATE" \
+            -e MAX_WORKERS="$MAX_WORKERS" \
+            -e EXPORT_FORMAT="$EXPORT_FORMAT" \
+            -e ENABLE_CACHE="$ENABLE_CACHE" \
+            -e TEST_URLS="$TEST_URLS" \
+            -e TEST_URLS_HTTPS="$TEST_URLS_HTTPS" \
+            -e REQUIRE_HTTPS="$REQUIRE_HTTPS" \
+            -e STRONG_STYLE_TEST="$STRONG_STYLE_TEST" \
+            -e STRONG_STYLE_TIMEOUT="$STRONG_STYLE_TIMEOUT" \
+            -e STRONG_MAX_RESPONSE_TIME="$STRONG_MAX_RESPONSE_TIME" \
+            -e STRONG_DOUBLE_CHECK="$STRONG_DOUBLE_CHECK" \
+            -e STRONG_ATTEMPTS="$STRONG_ATTEMPTS" \
+            -e REQUESTS_PER_URL="$REQUESTS_PER_URL" \
+            -e MIN_SUCCESSFUL_REQUESTS="$MIN_SUCCESSFUL_REQUESTS" \
+            -e MIN_SUCCESSFUL_URLS="$MIN_SUCCESSFUL_URLS" \
+            -e REQUEST_DELAY="$REQUEST_DELAY" \
+            -e CONNECT_TIMEOUT="$CONNECT_TIMEOUT" \
+            -e CONNECT_TIMEOUT_SLOW="$CONNECT_TIMEOUT_SLOW" \
+            -e USE_ADAPTIVE_TIMEOUT="$USE_ADAPTIVE_TIMEOUT" \
+            -e MAX_RETRIES="$MAX_RETRIES" \
+            -e MAX_RESPONSE_TIME="$MAX_RESPONSE_TIME" \
+            -e MIN_RESPONSE_SIZE="$MIN_RESPONSE_SIZE" \
+            -e MAX_LATENCY_MS="$MAX_LATENCY_MS" \
+            -e VERIFY_HTTPS_SSL="$VERIFY_HTTPS_SSL" \
+            -e STABILITY_CHECKS="$STABILITY_CHECKS" \
+            -e STABILITY_CHECK_DELAY="$STABILITY_CHECK_DELAY" \
+            -e STRICT_MODE="$STRICT_MODE" \
+            -e STRICT_MODE_REQUIRE_ALL="$STRICT_MODE_REQUIRE_ALL" \
+            -e TEST_POST_REQUESTS="$TEST_POST_REQUESTS" \
+            -e SPEED_TEST_ENABLED="$SPEED_TEST_ENABLED" \
+            -e SPEED_TEST_TIMEOUT="$SPEED_TEST_TIMEOUT" \
+            -e SPEED_TEST_MODE="$SPEED_TEST_MODE" \
+            -e SPEED_TEST_METRIC="$SPEED_TEST_METRIC" \
+            -e SPEED_TEST_OUTPUT="$SPEED_TEST_OUTPUT" \
+            -e SPEED_TEST_REQUESTS="$SPEED_TEST_REQUESTS" \
+            -e SPEED_TEST_URL="$SPEED_TEST_URL" \
+            -e SPEED_TEST_WORKERS="$SPEED_TEST_WORKERS" \
+            -e SPEED_TEST_DOWNLOAD_TIMEOUT="$SPEED_TEST_DOWNLOAD_TIMEOUT" \
+            -e SPEED_TEST_DOWNLOAD_URL_SMALL="$SPEED_TEST_DOWNLOAD_URL_SMALL" \
+            -e SPEED_TEST_DOWNLOAD_URL_MEDIUM="$SPEED_TEST_DOWNLOAD_URL_MEDIUM" \
+            -e MIN_SPEED_THRESHOLD_MBPS="$MIN_SPEED_THRESHOLD_MBPS" \
+            -e SPEED_TEST_DEBUG="$SPEED_TEST_DEBUG" \
+            -e XRAY_STARTUP_WAIT="$XRAY_STARTUP_WAIT" \
+            -e XRAY_STARTUP_POLL_INTERVAL="$XRAY_STARTUP_POLL_INTERVAL" \
+            -e XRAY_PORT_WAIT="$XRAY_PORT_WAIT" \
+            -e BASE_PORT="$BASE_PORT" \
+            vless-checker -
+          else
+            docker compose run --rm \
+            -e OUTPUT_FILE="$OUTPUT_FILE" \
+            -e OUTPUT_DIR="$OUTPUT_DIR" \
+            -e MODE="$MODE" \
+            -e NOTWORKERS_UPDATE_ENABLED="$NOTWORKERS_UPDATE_ENABLED" \
+            -e OUTPUT_ADD_DATE="$OUTPUT_ADD_DATE" \
+            -e MAX_WORKERS="$MAX_WORKERS" \
+            -e EXPORT_FORMAT="$EXPORT_FORMAT" \
+            -e ENABLE_CACHE="$ENABLE_CACHE" \
+            -e TEST_URLS="$TEST_URLS" \
+            -e TEST_URLS_HTTPS="$TEST_URLS_HTTPS" \
+            -e REQUIRE_HTTPS="$REQUIRE_HTTPS" \
+            -e STRONG_STYLE_TEST="$STRONG_STYLE_TEST" \
+            -e STRONG_STYLE_TIMEOUT="$STRONG_STYLE_TIMEOUT" \
+            -e STRONG_MAX_RESPONSE_TIME="$STRONG_MAX_RESPONSE_TIME" \
+            -e STRONG_DOUBLE_CHECK="$STRONG_DOUBLE_CHECK" \
+            -e STRONG_ATTEMPTS="$STRONG_ATTEMPTS" \
+            -e REQUESTS_PER_URL="$REQUESTS_PER_URL" \
+            -e MIN_SUCCESSFUL_REQUESTS="$MIN_SUCCESSFUL_REQUESTS" \
+            -e MIN_SUCCESSFUL_URLS="$MIN_SUCCESSFUL_URLS" \
+            -e REQUEST_DELAY="$REQUEST_DELAY" \
+            -e CONNECT_TIMEOUT="$CONNECT_TIMEOUT" \
+            -e CONNECT_TIMEOUT_SLOW="$CONNECT_TIMEOUT_SLOW" \
+            -e USE_ADAPTIVE_TIMEOUT="$USE_ADAPTIVE_TIMEOUT" \
+            -e MAX_RETRIES="$MAX_RETRIES" \
+            -e MAX_RESPONSE_TIME="$MAX_RESPONSE_TIME" \
+            -e MIN_RESPONSE_SIZE="$MIN_RESPONSE_SIZE" \
+            -e MAX_LATENCY_MS="$MAX_LATENCY_MS" \
+            -e VERIFY_HTTPS_SSL="$VERIFY_HTTPS_SSL" \
+            -e STABILITY_CHECKS="$STABILITY_CHECKS" \
+            -e STABILITY_CHECK_DELAY="$STABILITY_CHECK_DELAY" \
+            -e STRICT_MODE="$STRICT_MODE" \
+            -e STRICT_MODE_REQUIRE_ALL="$STRICT_MODE_REQUIRE_ALL" \
+            -e TEST_POST_REQUESTS="$TEST_POST_REQUESTS" \
+            -e SPEED_TEST_ENABLED="$SPEED_TEST_ENABLED" \
+            -e SPEED_TEST_TIMEOUT="$SPEED_TEST_TIMEOUT" \
+            -e SPEED_TEST_MODE="$SPEED_TEST_MODE" \
+            -e SPEED_TEST_METRIC="$SPEED_TEST_METRIC" \
+            -e SPEED_TEST_OUTPUT="$SPEED_TEST_OUTPUT" \
+            -e SPEED_TEST_REQUESTS="$SPEED_TEST_REQUESTS" \
+            -e SPEED_TEST_URL="$SPEED_TEST_URL" \
+            -e SPEED_TEST_WORKERS="$SPEED_TEST_WORKERS" \
+            -e SPEED_TEST_DOWNLOAD_TIMEOUT="$SPEED_TEST_DOWNLOAD_TIMEOUT" \
+            -e SPEED_TEST_DOWNLOAD_URL_SMALL="$SPEED_TEST_DOWNLOAD_URL_SMALL" \
+            -e SPEED_TEST_DOWNLOAD_URL_MEDIUM="$SPEED_TEST_DOWNLOAD_URL_MEDIUM" \
+            -e MIN_SPEED_THRESHOLD_MBPS="$MIN_SPEED_THRESHOLD_MBPS" \
+            -e SPEED_TEST_DEBUG="$SPEED_TEST_DEBUG" \
+            -e XRAY_STARTUP_WAIT="$XRAY_STARTUP_WAIT" \
+            -e XRAY_STARTUP_POLL_INTERVAL="$XRAY_STARTUP_POLL_INTERVAL" \
+            -e XRAY_PORT_WAIT="$XRAY_PORT_WAIT" \
+            -e BASE_PORT="$BASE_PORT" \
+            vless-checker "$AVAILABLE_URL"
+          fi
+
+      - name: Verify configs/white-list_available and create top100 if missing
+        run: |
+          test -f "configs/white-list_available" || (echo "::error::configs/white-list_available not found" && exit 1)
+          if [ -f .before-docker-run ] && [ .before-docker-run -nt "configs/white-list_available" ]; then
+            echo "::warning::configs/white-list_available was not updated by Docker (0 results or checker wrote elsewhere), using existing file"
+          fi
+          if [ ! -f "configs/white-list_available(top100)" ]; then
+            echo "configs/white-list_available(top100) not created, creating from first 100 lines of main file"
+            mkdir -p configs
+            head -n 100 "configs/white-list_available" > "configs/white-list_available(top100)"
+          fi
+          rm -f .before-docker-run
+          echo "Output files:"
+          ls -la configs/white-list_available "configs/white-list_available(top100)"
+
+      - name: Merge Docker results with backed up white-list_available (supplement, dedupe by key)
+        run: |
+          python -c "
+          import os
+          import sys
+          sys.path.insert(0, os.getcwd())
+          from lib.parsing import normalize_proxy_link
+
+          def read_lines(path):
+              if not os.path.isfile(path) or os.path.getsize(path) == 0:
+                  return []
+              with open(path, encoding='utf-8') as f:
+                  return [line.rstrip(chr(10)) for line in f if line.strip() and not line.strip().startswith('#')]
+
+          def link_from_line(line):
+              s = line.strip().split(maxsplit=1)[0].strip()
+              return s.split('#', 1)[0].strip() if '#' in s else s
+
+          configs = 'configs'
+          backup = os.path.join(configs, 'white-list_available_backup')
+          backup_top = os.path.join(configs, 'white-list_available_top100_backup')
+          docker_out = os.path.join(configs, 'white-list_available')
+          out_path = os.path.join(configs, 'white-list_available')
+          out_top = os.path.join(configs, 'white-list_available(top100)')
+
+          existing_lines = read_lines(backup)
+          new_lines = read_lines(docker_out)
+          existing_top = read_lines(backup_top)
+
+          seen = set()
+          merged = []
+          for line in existing_lines:
+              link = link_from_line(line)
+              if not link:
+                  continue
+              norm = normalize_proxy_link(link)
+              if norm and norm not in seen:
+                  seen.add(norm)
+                  merged.append(line)
+          for line in new_lines:
+              link = link_from_line(line)
+              if not link:
+                  continue
+              norm = normalize_proxy_link(link)
+              if norm and norm not in seen:
+                  seen.add(norm)
+                  merged.append(line)
+
+          os.makedirs(configs, exist_ok=True)
+          merged_text = chr(10).join(merged)
+          with open(out_path, 'w', encoding='utf-8') as f:
+              f.write(merged_text + (chr(10) if merged else ''))
+          print(f'Merged white-list_available: existing (backup) + this run -> {len(merged)} total, deduped by key')
+
+          top_seen = set()
+          top100 = []
+          for line in merged:
+              if len(top100) >= 100:
+                  break
+              link = link_from_line(line)
+              if not link:
+                  continue
+              norm = normalize_proxy_link(link)
+              if norm and norm not in top_seen:
+                  top_seen.add(norm)
+                  top100.append(line)
+          top100_text = chr(10).join(top100)
+          with open(out_top, 'w', encoding='utf-8') as f:
+              f.write(top100_text + (chr(10) if top100 else ''))
+          print(f'white-list_available(top100): {len(top100)} keys')
+          "
+
+      - name: Normalize comments (strip + add flag and AUTO_COMMENT)
+        if: env.AUTO_COMMENT != ''
+        run: |
+          if [ -s "configs/white-list_available" ]; then
+            python strip_vpn_comments.py configs/white-list_available -o configs/white-list_available
+            echo "Normalized configs/white-list_available"
+          fi
+          if [ -s "configs/white-list_available(top100)" ]; then
+            python strip_vpn_comments.py "configs/white-list_available(top100)" -o "configs/white-list_available(top100)"
+            echo "Normalized configs/white-list_available(top100)"
+          fi
+        env:
+          AUTO_COMMENT: ${{ env.AUTO_COMMENT }}
+
+      - name: Commit and push configs/white-list_available and configs/white-list_available(top100)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          mkdir -p configs
+          if [ -f "configs/white-list_available" ]; then git add configs/white-list_available; fi
+          if [ -f "configs/white-list_available(top100)" ]; then git add "configs/white-list_available(top100)"; fi
+          if ! git diff --cached --quiet; then
+            NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            C=$(wc -l < "configs/white-list_available" 2>/dev/null || echo "0")
+            C100=$(wc -l < "configs/white-list_available(top100)" 2>/dev/null || echo "0")
+            OLD=$(cat configs/last-updated.json 2>/dev/null || echo '{}')
+            echo "$OLD" | jq -c --arg t "$NOW" --argjson c "$C" --argjson c100 "$C100" '.["configs/white-list_available"] = {updated: $t, count: $c} | .["configs/white-list_available(top100)"] = {updated: $t, count: $c100}' > configs/last-updated.json
+            git add configs/last-updated.json
+          fi
+          if ! git diff --cached --quiet; then
+            git commit -m "update [Docker + speedtest, automated]"
+            git stash -u
+            git pull --rebase origin "${{ github.ref_name }}"
+            git stash pop || true
+            git push
+          else
+            echo "configs/white-list_available and top100 unchanged, skip push"
+          fi
+
+      - name: Prepare Telegram stats
+        id: telegram_stats
+        run: |
+          K_IN=$(wc -l < configs/available 2>/dev/null || echo 0)
+          K_OUT=$(wc -l < configs/white-list_available 2>/dev/null || echo 0)
+          END=$(date -u +%s)
+          START=${{ steps.start.outputs.started_at }}
+          DURATION_SEC=$(( END - START ))
+          MM=$(( DURATION_SEC / 60 ))
+          SS=$(( DURATION_SEC % 60 ))
+          printf -v DURATION "%d:%02d" "$MM" "$SS"
+          echo "workflow_name=Daily DOCKER check" >> $GITHUB_OUTPUT
+          echo "keys_in=$K_IN" >> $GITHUB_OUTPUT
+          echo "keys_out=$K_OUT" >> $GITHUB_OUTPUT
+          echo "duration=$DURATION" >> $GITHUB_OUTPUT
+
+  notify-telegram:
+    needs: docker-check-and-publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Send workflow stats to Telegram
+        uses: ./.github/actions/telegram-workflow-stats
+        with:
+          workflow_name: ${{ needs.docker-check-and-publish.outputs.stats_workflow_name }}
+          keys_in: ${{ needs.docker-check-and-publish.outputs.stats_keys_in }}
+          keys_out: ${{ needs.docker-check-and-publish.outputs.stats_keys_out }}
+          duration: ${{ needs.docker-check-and-publish.outputs.stats_duration }}
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          extra_section: |
+            Обновлённые подписки:
+
+            [Full White List](https://whiteprime.github.io/xraycheck/configs/white-list_available)
+            [White List (Top 100)](https://whiteprime.github.io/xraycheck/configs/white-list_available%28top100%29)

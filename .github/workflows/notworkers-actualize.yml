@@ -1,0 +1,557 @@
+# Копия notworkers-actualize, но с использованием SQLite-хранилища configs/notworkers.db.
+# Старый workflow notworkers-actualize.yml и текстовый configs/notworkers не трогаем.
+
+name: Actualize notworkers
+
+on:
+  schedule:
+    # Один раз в сутки (ночной запуск, 22:30 UTC)
+    - cron: '30 22 * * *'
+  workflow_dispatch:
+    # Ручной запуск из вкладки Actions
+
+concurrency:
+  group: xraycheck-serial
+  cancel-in-progress: false
+
+env:
+  MODE: notworkers
+  OUTPUT_FILE: available
+  OUTPUT_DIR: configs
+  OUTPUT_ADD_DATE: 'false'
+  MAX_WORKERS: 1000
+  EXPORT_FORMAT: txt
+  ENABLE_CACHE: 'false'
+  TEST_URLS: http://www.google.com/generate_204,http://www.cloudflare.com/cdn-cgi/trace
+  TEST_URLS_HTTPS: https://www.gstatic.com/generate_204
+  REQUIRE_HTTPS: 'true'
+  STRONG_STYLE_TEST: 'true'
+  STRONG_STYLE_TIMEOUT: 12
+  STRONG_MAX_RESPONSE_TIME: 3
+  STRONG_DOUBLE_CHECK: 'true'
+  STRONG_ATTEMPTS: 3
+  REQUESTS_PER_URL: 2
+  MIN_SUCCESSFUL_REQUESTS: 2
+  MIN_SUCCESSFUL_URLS: 2
+  REQUEST_DELAY: 0.1
+  CONNECT_TIMEOUT: 6
+  CONNECT_TIMEOUT_SLOW: 15
+  USE_ADAPTIVE_TIMEOUT: 'false'
+  MAX_RETRIES: 1
+  MAX_RESPONSE_TIME: 6
+  MIN_RESPONSE_SIZE: 0
+  MAX_LATENCY_MS: 2000
+  VERIFY_HTTPS_SSL: 'false'
+  STABILITY_CHECKS: 2
+  STABILITY_CHECK_DELAY: 2.0
+  STRICT_MODE: 'true'
+  STRICT_MODE_REQUIRE_ALL: 'true'
+  TEST_POST_REQUESTS: 'false'
+
+  # Speedtest (после checker: результат в available и available(top100))
+  SPEED_TEST_ENABLED: 'true'
+  SPEED_TEST_TIMEOUT: 4
+  SPEED_TEST_MODE: full
+  SPEED_TEST_METRIC: latency
+  SPEED_TEST_OUTPUT: separate_file
+  SPEED_TEST_REQUESTS: 8
+  SPEED_TEST_URL: https://www.gstatic.com/generate_204
+  SPEED_TEST_WORKERS: 1000
+  SPEED_TEST_DOWNLOAD_TIMEOUT: 30
+  SPEED_TEST_DOWNLOAD_URL_SMALL: https://speed.cloudflare.com/__down?bytes=250000
+  SPEED_TEST_DOWNLOAD_URL_MEDIUM: https://speed.cloudflare.com/__down?bytes=1000000
+  MIN_SPEED_THRESHOLD_MBPS: 2.5
+  SPEED_TEST_DEBUG: 'false'
+  XRAY_STARTUP_WAIT: 1.8
+  XRAY_STARTUP_POLL_INTERVAL: 0.2
+  XRAY_PORT_WAIT: 10
+  BASE_PORT: 20000
+
+  # TTL для SQLite notworkers по last_seen
+  NOTWORKERS_SQLITE_TTL_DAYS: 3
+  # Максимальное число самых свежих записей notworkers, которые будут повторно проверяться за один запуск
+  NOTWORKERS_SQLITE_MAX_CHECK: 80000
+
+  # strip_vpn_comments.py: текст комментария (после флага страны) для проверенных конфигов
+  AUTO_COMMENT: ' verified · t.me/XRayCheck'
+
+jobs:
+  check-and-actualize-notworkers-sqlite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    outputs:
+      stats_workflow_name: ${{ steps.telegram_stats.outputs.workflow_name }}
+      stats_keys_in: ${{ steps.telegram_stats.outputs.keys_in }}
+      stats_keys_out: ${{ steps.telegram_stats.outputs.keys_out }}
+      stats_duration: ${{ steps.telegram_stats.outputs.duration }}
+    env:
+      XRAY_PATH: ${{ github.workspace }}/tools/xray
+      HYSTERIA_PATH: ${{ github.workspace }}/tools/hysteria
+
+    steps:
+      - name: Record start time
+        id: start
+        run: echo "started_at=$(date -u +%s)" >> $GITHUB_OUTPUT
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Setup Xray and Hysteria binaries
+        run: bash tools/setup-binaries.sh
+
+      - name: Restore notworkers DB cache
+        uses: actions/cache@v4
+        with:
+          path: configs/notworkers.db
+          key: notworkers-db-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            notworkers-db-${{ github.ref_name }}-
+            notworkers-db-
+
+      - name: Expire old SQLite notworkers (TTL by last_seen)
+        run: |
+          python -c "
+          import os
+          import sys
+          sys.path.insert(0, os.getcwd())
+          from notworkers_sqlite.store import init_db, expire_old
+
+          configs = 'configs'
+          db_path = os.path.join(configs, 'notworkers.db')
+          ttl_days = int(os.environ.get('NOTWORKERS_SQLITE_TTL_DAYS', '3'))
+
+          conn = init_db(db_path)
+          try:
+              total_before = conn.execute('SELECT COUNT(*) FROM notworkers').fetchone()[0]
+              removed = expire_old(conn, max_age_days=ttl_days)
+              total_after = conn.execute('SELECT COUNT(*) FROM notworkers').fetchone()[0]
+              print(
+                  f'SQLite notworkers TTL expire: total_before={total_before}, '
+                  f'removed={removed}, total_after={total_after}, ttl_days={ttl_days}'
+              )
+          finally:
+              conn.close()
+          "
+        env:
+          NOTWORKERS_SQLITE_TTL_DAYS: ${{ env.NOTWORKERS_SQLITE_TTL_DAYS }}
+
+      - name: Backup existing available and available(top100)
+        run: |
+          mkdir -p configs
+          if [ -f "configs/available" ] && [ -s "configs/available" ]; then
+            cp "configs/available" "configs/available_backup"
+            echo "Backed up configs/available"
+          fi
+          if [ -f "configs/available(top100)" ] && [ -s "configs/available(top100)" ]; then
+            cp "configs/available(top100)" "configs/available_top100_backup"
+            echo "Backed up configs/available(top100)"
+          fi
+
+      - name: "Split SQLite notworkers into Xray and Hysteria lists"
+        run: |
+          mkdir -p configs
+          python - << 'PY'
+          from pathlib import Path
+          import os
+          from notworkers_sqlite.store import init_db
+
+          db_path = Path("configs/notworkers.db")
+          xray_path = Path("configs/notworkers_xray")
+          hyst_path = Path("configs/hysteria_input")
+
+          if not db_path.is_file():
+              xray_path.write_text("", encoding="utf-8")
+              hyst_path.write_text("", encoding="utf-8")
+              print("configs/notworkers.db not found, skipping split")
+          else:
+              conn = init_db(db_path)
+              try:
+                  max_check = int(os.environ.get("NOTWORKERS_SQLITE_MAX_CHECK", "80000"))
+                  total_rows = conn.execute("SELECT COUNT(*) FROM notworkers").fetchone()[0]
+                  # Берём только самые свежие записи по last_seen (ограничиваем max_check)
+                  rows = list(
+                      conn.execute(
+                          "SELECT raw FROM notworkers ORDER BY last_seen DESC LIMIT ?",
+                          (max_check,),
+                      )
+                  )
+                  prefixes = ("hysteria://", "hysteria2://", "hy2://")
+                  xray_lines = []
+                  hyst_lines = []
+                  for (raw,) in rows:
+                      line = raw if raw.endswith("\n") else raw + "\n"
+                      s = line.strip()
+                      if not s or s.startswith("#"):
+                          continue
+                      if s.startswith(prefixes):
+                          hyst_lines.append(line)
+                      else:
+                          xray_lines.append(line)
+                  xray_path.write_text("".join(xray_lines), encoding="utf-8")
+                  hyst_path.write_text("".join(hyst_lines), encoding="utf-8")
+                  print(
+                      "Split SQLite notworkers: "
+                      f"total_rows={total_rows}, used_last={len(rows)}, "
+                      f"limit={max_check}, Xray={len(xray_lines)}, Hysteria={len(hyst_lines)}"
+                  )
+              finally:
+                  conn.close()
+          PY
+
+      - name: Filter excluded endpoints
+        env:
+          EXCLUDE_ENDPOINTS: ${{ vars.EXCLUDE_ENDPOINTS }}
+          EXCLUDE_ENDPOINTS_LOG_DETAILS: "false"
+        run: |
+          if [ -f "configs/notworkers_xray" ]; then
+            python filter_excluded_endpoints.py configs/notworkers_xray > configs/notworkers_xray_filt.txt && mv configs/notworkers_xray_filt.txt configs/notworkers_xray
+          fi
+          if [ -f "configs/hysteria_input" ]; then
+            python filter_excluded_endpoints.py configs/hysteria_input > configs/hysteria_input_filt.txt && mv configs/hysteria_input_filt.txt configs/hysteria_input
+          fi
+
+      - name: "Run vless_checker.py (Xray keys only from configs/notworkers_xray)"
+        run: |
+          if [ -s "configs/notworkers_xray" ]; then
+            python vless_checker.py configs/notworkers_xray
+            mv configs/available configs/available_xray
+          else
+            touch configs/available_xray
+            echo "No Xray keys in notworkers, skipping vless_checker"
+          fi
+        env:
+          MODE: single
+          NOTWORKERS_UPDATE_ENABLED: 'false'
+
+      - name: Run speedtest on Xray configs
+        if: env.SPEED_TEST_ENABLED == 'true'
+        run: |
+          if [ -f "configs/available_xray" ] && [ -s "configs/available_xray" ]; then
+            python speedtest_checker.py configs/available_xray
+          else
+            echo "No Xray configs for speedtest"
+          fi
+        env:
+          MAX_WORKERS: ${{ env.MAX_WORKERS }}
+          BASE_PORT: ${{ env.BASE_PORT }}
+          XRAY_STARTUP_WAIT: ${{ env.XRAY_STARTUP_WAIT }}
+          XRAY_STARTUP_POLL_INTERVAL: ${{ env.XRAY_STARTUP_POLL_INTERVAL }}
+          XRAY_PORT_WAIT: ${{ env.XRAY_PORT_WAIT }}
+          VERIFY_HTTPS_SSL: ${{ env.VERIFY_HTTPS_SSL }}
+          SPEED_TEST_ENABLED: ${{ env.SPEED_TEST_ENABLED }}
+          SPEED_TEST_TIMEOUT: ${{ env.SPEED_TEST_TIMEOUT }}
+          SPEED_TEST_MODE: ${{ env.SPEED_TEST_MODE }}
+          SPEED_TEST_METRIC: ${{ env.SPEED_TEST_METRIC }}
+          SPEED_TEST_OUTPUT: ${{ env.SPEED_TEST_OUTPUT }}
+          SPEED_TEST_REQUESTS: ${{ env.SPEED_TEST_REQUESTS }}
+          SPEED_TEST_URL: ${{ env.SPEED_TEST_URL }}
+          SPEED_TEST_WORKERS: ${{ env.SPEED_TEST_WORKERS }}
+          SPEED_TEST_DOWNLOAD_TIMEOUT: ${{ env.SPEED_TEST_DOWNLOAD_TIMEOUT }}
+          SPEED_TEST_DOWNLOAD_URL_SMALL: ${{ env.SPEED_TEST_DOWNLOAD_URL_SMALL }}
+          SPEED_TEST_DOWNLOAD_URL_MEDIUM: ${{ env.SPEED_TEST_DOWNLOAD_URL_MEDIUM }}
+          MIN_SPEED_THRESHOLD_MBPS: ${{ env.MIN_SPEED_THRESHOLD_MBPS }}
+          SPEED_TEST_DEBUG: ${{ env.SPEED_TEST_DEBUG }}
+          OUTPUT_DIR: configs
+
+      - name: Run hysteria_checker on Hysteria configs
+        run: |
+          if [ -f "configs/hysteria_input" ] && [ -s "configs/hysteria_input" ]; then
+            python hysteria_checker.py configs/hysteria_input
+          else
+            echo "No Hysteria configs to check"
+          fi
+
+      - name: Run Hysteria speedtest
+        if: env.SPEED_TEST_ENABLED == 'true'
+        run: |
+          if [ -f "configs/hysteria" ] && [ -s "configs/hysteria" ]; then
+            python speedtest_hysteria.py configs/hysteria
+          else
+            echo "No Hysteria configs for speedtest"
+          fi
+
+      - name: Merge Xray and Hysteria results into configs/available
+        run: |
+          mkdir -p configs
+          > "configs/available" || true
+          if [ -f "configs/available_xray_st" ] && [ -s "configs/available_xray_st" ]; then
+            cat "configs/available_xray_st" >> "configs/available"
+          elif [ -f "configs/available_xray" ] && [ -s "configs/available_xray" ]; then
+            cat "configs/available_xray" >> "configs/available"
+          fi
+          if [ -f "configs/hysteria_st" ] && [ -s "configs/hysteria_st" ]; then
+            cat "configs/hysteria_st" >> "configs/available"
+          elif [ -f "configs/hysteria" ] && [ -s "configs/hysteria" ]; then
+            cat "configs/hysteria" >> "configs/available"
+          fi
+          if [ -s "configs/available" ]; then
+            head -n 100 "configs/available" > "configs/available(top100)"
+          else
+            echo "No configs available after merging Xray and Hysteria results"
+          fi
+
+      - name: "Merge failed Xray and Hysteria back into SQLite notworkers"
+        run: |
+          python -c "
+          import os
+          import sys
+          sys.path.insert(0, os.getcwd())
+          from lib.parsing import normalize_proxy_link
+          from notworkers_sqlite.store import init_db, upsert_notworker
+
+          configs = 'configs'
+          notworkers_xray = os.path.join(configs, 'notworkers_xray')
+          hysteria_input = os.path.join(configs, 'hysteria_input')
+          hysteria_ok = os.path.join(configs, 'hysteria')
+          db_path = os.path.join(configs, 'notworkers.db')
+
+          def read_lines(path):
+              if not os.path.isfile(path) or os.path.getsize(path) == 0:
+                  return []
+              with open(path, encoding='utf-8') as f:
+                  return [line.rstrip('\\n') for line in f if line.strip() and not line.strip().startswith('#')]
+
+          def link_from_line(line):
+              return line.strip().split(maxsplit=1)[0].strip()
+
+          failed_xray = read_lines(notworkers_xray)
+          hyst_input_lines = read_lines(hysteria_input)
+          hyst_ok_links = {normalize_proxy_link(link_from_line(l)) for l in read_lines(hysteria_ok) if link_from_line(l)}
+
+          failed_hyst = []
+          for line in hyst_input_lines:
+              link = link_from_line(line)
+              if not link:
+                  continue
+              if normalize_proxy_link(link) not in hyst_ok_links:
+                  failed_hyst.append(line)
+
+          merged = failed_xray + failed_hyst
+          if not merged:
+              print('No failed Xray/Hysteria to merge into SQLite notworkers')
+              sys.exit(0)
+
+          conn = init_db(db_path)
+          try:
+              total_before = conn.execute('SELECT COUNT(*) FROM notworkers').fetchone()[0]
+              print(
+                  f'SQLite notworkers (merge failed step): '
+                  f'total_before={total_before}, failed_xray={len(failed_xray)}, failed_hyst={len(failed_hyst)}, merged={len(merged)}'
+              )
+              inserted = 0
+              updated = 0
+              for line in merged:
+                  link = link_from_line(line)
+                  if not link:
+                      continue
+                  norm = normalize_proxy_link(link)
+                  if not norm:
+                      continue
+                  full = line if line else link
+                  cur = conn.execute('SELECT 1 FROM notworkers WHERE key = ? LIMIT 1', (norm,))
+                  exists = cur.fetchone() is not None
+                  upsert_notworker(conn, norm, full, source='notworkers-actualize:url-fail')
+                  if exists:
+                      updated += 1
+                  else:
+                      inserted += 1
+              conn.commit()
+              total_after = conn.execute('SELECT COUNT(*) FROM notworkers').fetchone()[0]
+              print(
+                  f'SQLite notworkers (merge failed step): merged {inserted} new / {updated} updated; '
+                  f'total_before={total_before} -> total_after={total_after}'
+              )
+          finally:
+              conn.close()
+          "
+
+      - name: Show SQLite notworkers summary
+        run: |
+          python -m notworkers_sqlite.cli summary --db configs/notworkers.db || true
+
+      - name: Merge new working keys into available (append, dedupe by key)
+        run: |
+          python -c "
+          import os
+          import sys
+          sys.path.insert(0, os.getcwd())
+          from lib.parsing import normalize_proxy_link
+
+          def read_lines(path):
+              if not os.path.isfile(path) or os.path.getsize(path) == 0:
+                  return []
+              with open(path, encoding='utf-8') as f:
+                  return [line.rstrip(chr(10)) for line in f if line.strip() and not line.strip().startswith('#')]
+
+          def link_from_line(line):
+              s = line.strip().split(maxsplit=1)[0].strip()
+              return s.split('#', 1)[0].strip() if '#' in s else s
+
+          configs = 'configs'
+          backup = os.path.join(configs, 'available_backup')
+          backup_top = os.path.join(configs, 'available_top100_backup')
+          checker_out = os.path.join(configs, 'available')
+          out_path = os.path.join(configs, 'available')
+          out_top = os.path.join(configs, 'available(top100)')
+
+          new_lines = read_lines(checker_out)
+          new_top_lines = read_lines(out_top) if os.path.isfile(out_top) and os.path.getsize(out_top) > 0 else new_lines[:100]
+
+          existing_lines = read_lines(backup)
+          existing_top = read_lines(backup_top)
+
+          seen = set()
+          merged = []
+          for line in existing_lines:
+              link = link_from_line(line)
+              if not link:
+                  continue
+              norm = normalize_proxy_link(link)
+              if norm and norm not in seen:
+                  seen.add(norm)
+                  merged.append(line)
+          for line in new_lines:
+              link = link_from_line(line)
+              if not link:
+                  continue
+              norm = normalize_proxy_link(link)
+              if norm and norm not in seen:
+                  seen.add(norm)
+                  merged.append(line)
+
+          os.makedirs(configs, exist_ok=True)
+          merged_text = chr(10).join(merged)
+          with open(out_path, 'w', encoding='utf-8') as f:
+              f.write(merged_text + (chr(10) if merged else ''))
+          print(f'Merged available: existing + new -> {len(merged)} total, deduped by key')
+
+          top_seen = set()
+          top100 = []
+          for line in new_top_lines:
+              if len(top100) >= 100:
+                  break
+              link = link_from_line(line)
+              if not link:
+                  continue
+              norm = normalize_proxy_link(link)
+              if norm and norm not in top_seen:
+                  top_seen.add(norm)
+                  top100.append(line)
+          for line in existing_top:
+              if len(top100) >= 100:
+                  break
+              link = link_from_line(line)
+              if not link:
+                  continue
+              norm = normalize_proxy_link(link)
+              if norm and norm not in top_seen:
+                  top_seen.add(norm)
+                  top100.append(line)
+
+          top100_text = chr(10).join(top100)
+          with open(out_top, 'w', encoding='utf-8') as f:
+              f.write(top100_text + (chr(10) if top100 else ''))
+          print(f'Merged available(top100): {len(top100)} keys')
+          "
+
+      - name: Normalize comments (strip + add flag and AUTO_COMMENT)
+        if: env.AUTO_COMMENT != ''
+        run: |
+          if [ -s "configs/available" ]; then
+            python strip_vpn_comments.py configs/available -o configs/available
+            head -n 100 "configs/available" > "configs/available(top100)"
+            echo "Normalized comments in configs/available and configs/available(top100)"
+          fi
+        env:
+          AUTO_COMMENT: ${{ env.AUTO_COMMENT }}
+
+      - name: Commit and push configs/available, configs/available(top100)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          mkdir -p configs
+          if [ -f "configs/available" ]; then git add configs/available; fi
+          if [ -f "configs/available(top100)" ]; then git add "configs/available(top100)"; fi
+          if ! git diff --cached --quiet; then
+            NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            C=$(wc -l < "configs/available" 2>/dev/null || echo "0")
+            C100=$(wc -l < "configs/available(top100)" 2>/dev/null || echo "0")
+            OLD=$(cat configs/last-updated.json 2>/dev/null || echo '{}')
+            echo "$OLD" | jq -c --arg t "$NOW" --argjson c "$C" --argjson c100 "$C100" '.["configs/available"] = {updated: $t, count: $c} | .["configs/available(top100)"] = {updated: $t, count: $c100}' > configs/last-updated.json
+            git add configs/last-updated.json
+          fi
+          if ! git diff --cached --quiet; then
+            git commit -m "actualize notworkers [check + speedtest, automated]"
+            git pull --no-rebase origin "${{ github.ref_name }}" || true
+            if [ -f .git/MERGE_HEAD ]; then
+              if grep -q '^<<<<<<<' configs/last-updated.json 2>/dev/null; then
+                git checkout --theirs configs/last-updated.json
+                OLD=$(cat configs/last-updated.json 2>/dev/null || echo '{}')
+                NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+                C=$(wc -l < "configs/available" 2>/dev/null || echo "0")
+                C100=$(wc -l < "configs/available(top100)" 2>/dev/null || echo "0")
+                echo "$OLD" | jq -c --arg t "$NOW" --argjson c "$C" --argjson c100 "$C100" '.["configs/available"] = {updated: $t, count: $c} | .["configs/available(top100)"] = {updated: $t, count: $c100}' > configs/last-updated.json
+                git add configs/last-updated.json
+              fi
+              git commit -m "Merge remote; resolve last-updated.json"
+            fi
+            git push
+          else
+            echo "No changes, skip push"
+          fi
+
+      - name: Prepare Telegram stats
+        id: telegram_stats
+        run: |
+          K_IN=0
+          [ -f configs/notworkers_xray ] && K_IN=$((K_IN + $(wc -l < configs/notworkers_xray)))
+          [ -f configs/hysteria_input ] && K_IN=$((K_IN + $(wc -l < configs/hysteria_input)))
+          K_OUT=$(wc -l < configs/available 2>/dev/null || echo 0)
+          END=$(date -u +%s)
+          START=${{ steps.start.outputs.started_at }}
+          DURATION_SEC=$(( END - START ))
+          printf -v DURATION "%d:%02d" $(( DURATION_SEC / 60 )) $(( DURATION_SEC % 60 ))
+          echo "workflow_name=Actualize notworkers" >> $GITHUB_OUTPUT
+          echo "keys_in=$K_IN" >> $GITHUB_OUTPUT
+          echo "keys_out=$K_OUT" >> $GITHUB_OUTPUT
+          echo "duration=$DURATION" >> $GITHUB_OUTPUT
+
+  notify-telegram:
+    needs: check-and-actualize-notworkers-sqlite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Send workflow stats to Telegram
+        uses: ./.github/actions/telegram-workflow-stats
+        with:
+          workflow_name: ${{ needs.check-and-actualize-notworkers-sqlite.outputs.stats_workflow_name }}
+          keys_in: ${{ needs.check-and-actualize-notworkers-sqlite.outputs.stats_keys_in }}
+          keys_out: ${{ needs.check-and-actualize-notworkers-sqlite.outputs.stats_keys_out }}
+          duration: ${{ needs.check-and-actualize-notworkers-sqlite.outputs.stats_duration }}
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          extra_section: |
+            Обновлённые подписки:
+
+            [Full Available List](https://whiteprime.github.io/xraycheck/configs/available)
+            [Available List (top100)](https://whiteprime.github.io/xraycheck/configs/available%28top100%29)
+

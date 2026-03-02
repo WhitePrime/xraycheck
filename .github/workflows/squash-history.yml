@@ -1,0 +1,88 @@
+# Workflow: сброс истории репозитория (одна "осиротевшая" ветка + один коммит)
+# и очистка всей истории запусков Actions (все workflow runs в репо, кроме текущего, удаляются через API).
+# Запуск только вручную (workflow_dispatch). После push история коммитов в репо будет одна запись.
+
+name: Squash & clean
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: xraycheck-serial
+  cancel-in-progress: false
+
+jobs:
+  clean-workflow-runs:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete previous workflow runs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const currentRunId = context.runId;
+            let totalDeleted = 0;
+            let page = 1;
+            const perPage = 100;
+            while (true) {
+              const { data } = await github.rest.actions.listWorkflowRunsForRepo({
+                owner,
+                repo,
+                per_page: perPage,
+                page
+              });
+              const runs = data.workflow_runs || [];
+              for (const run of runs) {
+                if (run.id !== currentRunId) {
+                  try {
+                    await github.rest.actions.deleteWorkflowRun({ owner, repo, run_id: run.id });
+                    totalDeleted++;
+                  } catch (e) {
+                    console.warn('Could not delete run ' + run.id, e.message);
+                  }
+                }
+              }
+              if (runs.length < perPage) break;
+              page++;
+            }
+            console.log('Deleted ' + totalDeleted + ' previous workflow run(s).');
+
+  squash-and-push:
+    runs-on: ubuntu-latest
+    needs: clean-workflow-runs
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Squash history (orphan branch + force push)
+        run: |
+          # 1. Переключиться на новую "осиротевшую" ветку (без истории)
+          git checkout --orphan temp_branch
+
+          # 2. Добавить все файлы из текущего состояния (как в последнем коммите)
+          git add -A
+
+          # 3. Сделать новый начальный коммит
+          git commit -m "Initial commit: current state"
+
+          # 4. Удалить старую ветку main/master (одна из них есть)
+          git branch -D main 2>/dev/null || true
+          git branch -D master 2>/dev/null || true
+
+          # 5. Переименовать новую ветку в main
+          git branch -m main
+
+          # 6. Принудительно обновить удалённый репозиторий
+          git push -f origin main

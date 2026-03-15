@@ -1,0 +1,203 @@
+name: MTProto check
+
+on:
+  workflow_run:
+    workflows: ["Speedtest"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    # Ручной запуск из вкладки Actions (параметры берём из env, как в daily-check.yml)
+
+env:
+  MODE: merge
+  OUTPUT_DIR: configs
+  MAX_WORKERS: 900
+  CONNECT_TIMEOUT: 4
+  MTPROTO_ATTEMPTS: 4
+  MTPROTO_MIN_SUCCESS_RATE: 0.8
+  MTPROTO_JITTER_SCALE_MS: 200
+  MTPROTO_TOP_N: 100
+  MTPROTO_MAX_CANDIDATES: 0
+  MTPROTO_STRICT: 'true'
+
+jobs:
+  mtproto-check:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    outputs:
+      stats_workflow_name: ${{ steps.telegram_stats.outputs.workflow_name }}
+      stats_keys_in: ${{ steps.telegram_stats.outputs.keys_in }}
+      stats_keys_out: ${{ steps.telegram_stats.outputs.keys_out }}
+      stats_duration: ${{ steps.telegram_stats.outputs.duration }}
+
+    steps:
+      - name: Record start time
+        id: start
+        run: echo "started_at=$(date -u +%s)" >> $GITHUB_OUTPUT
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Prepare merged MTProto list from secret
+        env:
+          MTPROTOFILE_CONTENT: ${{ secrets.MTPROTOFILE_CONTENT }}
+        run: |
+          if [ -z "$MTPROTOFILE_CONTENT" ]; then
+            echo "::error::Secret MTPROTOFILE_CONTENT is not set. Add it in Settings - Secrets and variables - Actions."
+            exit 1
+          fi
+
+          echo "Creating mtproto_links.txt from MTPROTOFILE_CONTENT..."
+          printf '%s\n' "$MTPROTOFILE_CONTENT" > mtproto_links.txt
+
+          echo "Downloading and merging MTProto lists..."
+          : > mtproto_merged.txt
+          while IFS= read -r url; do
+            url_trimmed=$(echo "$url" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            if [ -z "$url_trimmed" ]; then
+              continue
+            fi
+            echo "Fetching $url_trimmed"
+            curl -fsSL "$url_trimmed" >> mtproto_merged.txt || echo "Warning: failed to fetch $url_trimmed" >&2
+            echo >> mtproto_merged.txt
+          done < mtproto_links.txt
+
+          if [ ! -s mtproto_merged.txt ]; then
+            echo "::error::No MTProto data downloaded from provided URLs."
+            exit 1
+          fi
+
+      - name: Run MTProto checker
+        env:
+          MODE: merge
+        run: |
+          mkdir -p configs
+          echo "MTProto params: event=${{ github.event_name }} workers=${MAX_WORKERS} timeout=${CONNECT_TIMEOUT} attempts=${MTPROTO_ATTEMPTS} min_success_rate=${MTPROTO_MIN_SUCCESS_RATE} jitter_scale_ms=${MTPROTO_JITTER_SCALE_MS} top_n=${MTPROTO_TOP_N} max_candidates=${MTPROTO_MAX_CANDIDATES} strict=${MTPROTO_STRICT}"
+          STRICT_FLAG="--no-strict"
+          if [ "${MTPROTO_STRICT}" = "true" ]; then
+            STRICT_FLAG="--strict"
+          fi
+          python mtproto_checker.py mtproto_merged.txt \
+            --workers "${MAX_WORKERS}" \
+            --timeout "${CONNECT_TIMEOUT}" \
+            --attempts "${MTPROTO_ATTEMPTS}" \
+            --min-success-rate "${MTPROTO_MIN_SUCCESS_RATE}" \
+            --jitter-scale-ms "${MTPROTO_JITTER_SCALE_MS}" \
+            --top-n "${MTPROTO_TOP_N}" \
+            --max-candidates "${MTPROTO_MAX_CANDIDATES}" \
+            ${STRICT_FLAG}
+
+      - name: Update last-updated.json for MTProto
+        run: |
+          if [ ! -f "configs/mtproto" ]; then
+            echo "::warning::configs/mtproto not found, skip last-updated.json update"
+            exit 0
+          fi
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          C_MT=$(wc -l < configs/mtproto 2>/dev/null || echo 0)
+          C_MT100=$(wc -l < "configs/mtproto(top100)" 2>/dev/null || echo 0)
+          OLD=$(cat configs/last-updated.json 2>/dev/null || echo '{}')
+          echo "$OLD" | jq -c --arg t "$NOW" \
+            --argjson c_mt "$C_MT" --argjson c_mt100 "$C_MT100" \
+            '.["configs/mtproto"] = {updated: $t, count: $c_mt} |
+             .["configs/mtproto(top100)"] = {updated: $t, count: $c_mt100}' \
+            > configs/last-updated.json
+
+      - name: Commit and push MTProto results
+        run: |
+          if [ ! -f "configs/mtproto" ]; then
+            echo "Nothing to commit (no MTProto results)."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          for f in configs/mtproto "configs/mtproto(top100)" configs/last-updated.json; do
+            [ -f "$f" ] && git add "$f"
+          done
+          if ! git diff --cached --quiet; then
+            git commit -m "update mtproto [automated]"
+            git pull --no-rebase origin "${{ github.ref_name }}" || true
+            if [ -f .git/MERGE_HEAD ]; then
+              # Resolve conflicts: keep our freshly generated mtproto files
+              for f in configs/mtproto "configs/mtproto(top100)"; do
+                if git diff --name-only --diff-filter=U | grep -qF "$f"; then
+                  git checkout --ours "$f"
+                  git add "$f"
+                fi
+              done
+              # Resolve last-updated.json: take remote base and re-apply our mtproto stats
+              if grep -q '^<<<<<<<' configs/last-updated.json 2>/dev/null; then
+                git checkout --theirs configs/last-updated.json
+                OLD=$(cat configs/last-updated.json 2>/dev/null || echo '{}')
+                NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+                C_MT=$(wc -l < configs/mtproto 2>/dev/null || echo 0)
+                C_MT100=$(wc -l < "configs/mtproto(top100)" 2>/dev/null || echo 0)
+                echo "$OLD" | jq -c --arg t "$NOW" \
+                  --argjson c_mt "$C_MT" --argjson c_mt100 "$C_MT100" \
+                  '.["configs/mtproto"] = {updated: $t, count: $c_mt} |
+                   .["configs/mtproto(top100)"] = {updated: $t, count: $c_mt100}' \
+                  > configs/last-updated.json
+                git add configs/last-updated.json
+              fi
+              git commit -m "Merge remote; resolve mtproto conflicts"
+            fi
+            git push
+          else
+            echo "MTProto results unchanged, skip push"
+          fi
+
+      - name: Prepare Telegram stats
+        id: telegram_stats
+        run: |
+          K_IN=0
+          [ -f mtproto_merged.txt ] && K_IN=$(wc -l < mtproto_merged.txt)
+          K_OUT=0
+          [ -f configs/mtproto ] && K_OUT=$(wc -l < configs/mtproto)
+          END=$(date -u +%s)
+          START=${{ steps.start.outputs.started_at }}
+          DURATION_SEC=$(( END - START ))
+          printf -v DURATION "%d:%02d" $(( DURATION_SEC / 60 )) $(( DURATION_SEC % 60 ))
+          echo "workflow_name=MTProto check" >> $GITHUB_OUTPUT
+          echo "keys_in=$K_IN" >> $GITHUB_OUTPUT
+          echo "keys_out=$K_OUT" >> $GITHUB_OUTPUT
+          echo "duration=$DURATION" >> $GITHUB_OUTPUT
+
+  notify-telegram:
+    needs: mtproto-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Send workflow stats to Telegram
+        uses: ./.github/actions/telegram-workflow-stats
+        with:
+          workflow_name: ${{ needs.mtproto-check.outputs.stats_workflow_name }}
+          keys_in: ${{ needs.mtproto-check.outputs.stats_keys_in }}
+          keys_out: ${{ needs.mtproto-check.outputs.stats_keys_out }}
+          duration: ${{ needs.mtproto-check.outputs.stats_duration }}
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          extra_section: |
+            Обновлённые MTProto-прокси:
+
+            [MTProto (FULL)](https://whiteprime.github.io/xraycheck/configs/mtproto)
+            [MTProto (TOP 100)](https://whiteprime.github.io/xraycheck/configs/mtproto%28top100%29)

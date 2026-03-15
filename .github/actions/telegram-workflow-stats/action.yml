@@ -1,0 +1,76 @@
+# Отправка в Telegram статистики успешного завершения workflow.
+# Секреты: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID (Settings → Secrets and variables → Actions).
+
+name: 'Telegram Workflow Stats'
+description: 'Send workflow completion stats to Telegram bot'
+
+inputs:
+  workflow_name:
+    description: 'Имя успешно завершённого процесса (workflow)'
+    required: true
+  keys_in:
+    description: 'Количество VPN-ключей на входе'
+    required: false
+    default: ''
+  keys_out:
+    description: 'Количество рабочих ключей на выходе'
+    required: false
+    default: ''
+  duration:
+    description: 'Время выполнения (mm:ss), отдельной строкой моноширинным'
+    required: false
+    default: ''
+  bot_token:
+    description: 'Telegram Bot Token (передавать из secrets.TELEGRAM_BOT_TOKEN)'
+    required: false
+    default: ''
+  chat_id:
+    description: 'Telegram Chat ID (передавать из secrets.TELEGRAM_CHAT_ID)'
+    required: false
+    default: ''
+  extra_section:
+    description: 'Дополнительный блок (например, «Обновлённые подписки» со ссылками), добавляется после статистики'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Send stats to Telegram
+      shell: bash
+      run: |
+        if [ -z "${{ inputs.bot_token }}" ] || [ -z "${{ inputs.chat_id }}" ]; then
+          echo "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set, skip sending"
+          exit 0
+        fi
+        KEYS_IN="${{ inputs.keys_in }}"
+        KEYS_OUT="${{ inputs.keys_out }}"
+        [ -z "$KEYS_IN" ] && KEYS_IN="-"
+        [ -z "$KEYS_OUT" ] && KEYS_OUT="-"
+        STATS_LINE=""
+        if [[ "$KEYS_IN" =~ ^[0-9]+$ ]] && [[ "$KEYS_OUT" =~ ^[0-9]+$ ]] && [ "$KEYS_IN" -gt 0 ]; then
+          PCT=$(( KEYS_OUT * 100 / KEYS_IN ))
+          STATS_LINE="Конфигов: $KEYS_IN → $KEYS_OUT ($PCT%)"
+        fi
+        DURATION="${{ inputs.duration }}"
+        DURATION_LINE=""
+        [ -n "$DURATION" ] && DURATION_LINE="Время выполнения: $DURATION"
+        EXTRA="${{ inputs.extra_section }}"
+        SEP="━━━━━━━━━━━━━━━"
+        PAYLOAD=$(jq -n \
+          --arg chat_id "${{ inputs.chat_id }}" \
+          --arg workflow "${{ inputs.workflow_name }}" \
+          --arg stats_line "$STATS_LINE" \
+          --arg duration_line "$DURATION_LINE" \
+          --arg extra "$EXTRA" \
+          --arg sep "$SEP" \
+          '{} | .chat_id = $chat_id | .parse_mode = "Markdown" | .text = (
+            "✅ *" + $workflow + "*"
+            + (if $stats_line != "" then "\n\n`" + $stats_line + "`" else "" end)
+            + (if $duration_line != "" then "\n\n`" + $duration_line + "`" else "" end)
+            + "\n\n" + $sep
+            + (if $extra != "" then "\n\n📋 " + $extra else "" end)
+          ) | .reply_markup = {"inline_keyboard": [[{"text": "XRayCheck", "url": "https://whiteprime.github.io/xraycheck/"}]]}')
+        curl -sS -X POST "https://api.telegram.org/bot${{ inputs.bot_token }}/sendMessage" \
+          -H "Content-Type: application/json" \
+          -d "$PAYLOAD"

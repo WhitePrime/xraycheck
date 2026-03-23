@@ -1,0 +1,124 @@
+{
+  "repo": "WhitePrime/xraycheck",
+  "fetched_at_utc": "2026-03-22T23:37:42.156074Z",
+  "stars": 62,
+  "forks": 7,
+  "views_14d": 5961,
+  "unique_visitors_14d": 1422,
+  "clones_14d": 15961,
+  "unique_clones_14d": 3028,
+  "referrers_14d": [
+    {
+      "referrer": "github.com",
+      "count": 2007,
+      "uniques": 373
+    },
+    {
+      "referrer": "4pda.to",
+      "count": 290,
+      "uniques": 154
+    },
+    {
+      "referrer": "yandex.ru",
+      "count": 128,
+      "uniques": 53
+    },
+    {
+      "referrer": "Google",
+      "count": 100,
+      "uniques": 39
+    },
+    {
+      "referrer": "org.telegram.messenger",
+      "count": 33,
+      "uniques": 10
+    },
+    {
+      "referrer": "avencores.github.io",
+      "count": 15,
+      "uniques": 15
+    },
+    {
+      "referrer": "DuckDuckGo",
+      "count": 8,
+      "uniques": 3
+    },
+    {
+      "referrer": "t.me",
+      "count": 7,
+      "uniques": 5
+    },
+    {
+      "referrer": "ya.ru",
+      "count": 7,
+      "uniques": 5
+    },
+    {
+      "referrer": "web.telegram.org",
+      "count": 6,
+      "uniques": 3
+    }
+  ],
+  "popular_content_14d": [
+    {
+      "path": "/WhitePrime/xraycheck",
+      "title": "GitHub - WhitePrime/xraycheck: Скрипт для технического анализа конфигураций V...",
+      "count": 1620,
+      "uniques": 872
+    },
+    {
+      "path": "/WhitePrime/xraycheck/tree/main/configs",
+      "title": "xraycheck/configs at main · WhitePrime/xraycheck · GitHub",
+      "count": 1490,
+      "uniques": 615
+    },
+    {
+      "path": "/WhitePrime/xraycheck/blob/main/configs/available(top100)",
+      "title": "xraycheck/configs at main · WhitePrime/xraycheck · GitHub",
+      "count": 384,
+      "uniques": 145
+    },
+    {
+      "path": "/WhitePrime/xraycheck/blob/main/configs/available",
+      "title": "xraycheck/configs at main · WhitePrime/xraycheck · GitHub",
+      "count": 246,
+      "uniques": 126
+    },
+    {
+      "path": "/WhitePrime/xraycheck/blob/main/configs/white-list_available",
+      "title": "xraycheck/configs at main · WhitePrime/xraycheck · GitHub",
+      "count": 222,
+      "uniques": 141
+    },
+    {
+      "path": "/WhitePrime/xraycheck/blob/main/configs/mtproto",
+      "title": "xraycheck/configs/mtproto at main · WhitePrime/xraycheck · GitHub",
+      "count": 198,
+      "uniques": 143
+    },
+    {
+      "path": "/WhitePrime/xraycheck/blob/main/configs/available_st(top100)",
+      "title": "xraycheck/configs в главном репозитории · WhitePrime/xraycheck · GitHub",
+      "count": 177,
+      "uniques": 73
+    },
+    {
+      "path": "/WhitePrime/xraycheck/tree/main",
+      "title": "xraycheck/configs at main · WhitePrime/xraycheck · GitHub",
+      "count": 175,
+      "uniques": 121
+    },
+    {
+      "path": "/WhitePrime/xraycheck/blob/main/configs/available_st",
+      "title": "xraycheck/configs at main · WhitePrime/xraycheck · GitHub",
+      "count": 159,
+      "uniques": 70
+    },
+    {
+      "path": "/WhitePrime/xraycheck/blob/main/configs/white-list_available_st",
+      "title": "xraycheck/configs at main · WhitePrime/xraycheck · GitHub",
+      "count": 146,
+      "uniques": 88
+    }
+  ]
+}

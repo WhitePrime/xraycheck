@@ -1,0 +1,237 @@
+# Автоматическое обновление статистики репозитория в README
+
+name: Update Repository Stats
+
+on:
+  workflow_run:
+    workflows: ["Nightly FULL check"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    # Ручной запуск из вкладки Actions
+
+concurrency:
+  group: xraycheck-serial
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  update-stats:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      repository-projects: read
+      actions: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Get repository statistics
+        id: stats
+        env:
+          # PAT обязателен: нужен для доступа к traffic статистике (views/clones/referrers/paths)
+          GITHUB_TOKEN: ${{ secrets.REPO_STATS_TOKEN }}
+        run: |
+          python3 << 'PYTHON_SCRIPT'
+          import os
+          import json
+          import pathlib
+          import datetime as dt
+          import urllib.request
+          import urllib.error
+          
+          token = os.environ.get('GITHUB_TOKEN', '').strip()
+          if not token:
+              raise SystemExit("REPO_STATS_TOKEN is required but missing/empty")
+          repo = os.environ['GITHUB_REPOSITORY']
+          
+          headers = {
+              'Authorization': f'token {token}',
+              'Accept': 'application/vnd.github.v3+json'
+          }
+
+          def gh_get(path: str, default):
+              url = f'https://api.github.com/repos/{repo}{path}'
+              try:
+                  req = urllib.request.Request(url, headers=headers)
+                  with urllib.request.urlopen(req) as response:
+                      return json.loads(response.read())
+              except urllib.error.HTTPError as e:
+                  if e.code == 403:
+                      print(f"⚠️ GitHub API {path} недоступно (403 Forbidden). Возможно, требуется токен с правами администратора.")
+                  else:
+                      print(f"⚠️ Ошибка GitHub API {path}: {e.code} {e.reason}")
+                  return default
+              except Exception as e:
+                  print(f"⚠️ Ошибка GitHub API {path}: {e}")
+                  return default
+          
+          # Получаем основную информацию о репозитории (всегда доступна)
+          repo_data = gh_get('', {})
+          
+          # Получаем статистику просмотров (может быть недоступна)
+          views_data = gh_get('/traffic/views', {"count": 0, "uniques": 0, "views": []})
+          views_14d = views_data.get('count', 0) or 0
+          unique_visitors_14d = views_data.get('uniques', 0) or 0
+          
+          # Получаем статистику клонов (может быть недоступна)
+          clones_data = gh_get('/traffic/clones', {"count": 0, "uniques": 0, "clones": []})
+          clones_14d = clones_data.get('count', 0) or 0
+          unique_clones_14d = clones_data.get('uniques', 0) or 0
+
+          # Популярные источники/страницы (может быть недоступно)
+          referrers = gh_get('/traffic/popular/referrers', [])
+          paths = gh_get('/traffic/popular/paths', [])
+          
+          # Извлекаем дополнительные метрики (всегда доступны)
+          stars = repo_data.get('stargazers_count', 0)
+          forks = repo_data.get('forks_count', 0)
+          
+          # Форматируем числа с разделителями тысяч
+          def format_number(num):
+              return f"{num:,}".replace(',', ' ')
+          
+          views_formatted = format_number(views_14d)
+          visitors_formatted = format_number(unique_visitors_14d)
+          clones_formatted = format_number(clones_14d)
+          unique_clones_formatted = format_number(unique_clones_14d)
+          stars_formatted = format_number(stars)
+          forks_formatted = format_number(forks)
+          
+          # Выводим для использования в следующих шагах (формат с разделителем - значения могут содержать пробелы)
+          out = os.environ['GITHUB_OUTPUT']
+          def write_output(name, value):
+              f = open(out, 'a')
+              f.write(f'{name}<<OUTPUT\n')
+              f.write(value + '\n')
+              f.write('OUTPUT\n')
+              f.close()
+          write_output('views', views_formatted)
+          write_output('visitors', visitors_formatted)
+          write_output('clones', clones_formatted)
+          write_output('unique_clones', unique_clones_formatted)
+          write_output('stars', stars_formatted)
+          write_output('forks', forks_formatted)
+
+          # Пишем JSON для сайта (статический файл, без токенов на клиенте)
+          payload = {
+              "repo": repo,
+              "fetched_at_utc": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
+              "stars": int(stars or 0),
+              "forks": int(forks or 0),
+              "views_14d": int(views_14d or 0),
+              "unique_visitors_14d": int(unique_visitors_14d or 0),
+              "clones_14d": int(clones_14d or 0),
+              "unique_clones_14d": int(unique_clones_14d or 0),
+              "referrers_14d": referrers if isinstance(referrers, list) else [],
+              "popular_content_14d": paths if isinstance(paths, list) else [],
+          }
+          out_path = pathlib.Path("repo-stats.json")
+          out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          print(f"✅ Записан JSON: {out_path}")
+          
+          print("📊 Статистика получена:")
+          print(f"  Просмотры (14Д): {views_formatted}")
+          print(f"  Уникальные посетители (14Д): {visitors_formatted}")
+          print(f"  Клоны (14Д): {clones_formatted}")
+          print(f"  Уникальные клоны (14Д): {unique_clones_formatted}")
+          print(f"  Звёзды: {stars_formatted}")
+          print(f"  Форки: {forks_formatted}")
+          PYTHON_SCRIPT
+
+      - name: Update README with statistics
+        run: |
+          python3 << 'PYTHON_SCRIPT'
+          import re
+          import os
+          
+          # Значения статистики из предыдущего шага
+          views = os.environ.get('VIEWS', '0')
+          visitors = os.environ.get('VISITORS', '0')
+          clones = os.environ.get('CLONES', '0')
+          unique_clones = os.environ.get('UNIQUE_CLONES', '0')
+          stars = os.environ.get('STARS', '0')
+          forks = os.environ.get('FORKS', '0')
+          
+          # Читаем README
+          with open('README.md', 'r', encoding='utf-8') as f:
+              content = f.read()
+          
+          # Паттерны для замены: \s+ и \s* учитывают разное выравнивание таблицы в README
+          def make_replacer(value):
+              def replacer(match):
+                  return match.group(1) + value + match.group(2)
+              return replacer
+          
+          replacements = [
+              (r'(\| Просмотры \(14Д\)\s+\|\s*)[^\|]*(\|)', make_replacer(views)),
+              (r'(\| Уникальные посетители \(14Д\)\s+\|\s*)[^\|]*(\|)', make_replacer(visitors)),
+              (r'(\| Клоны \(14Д\)\s+\|\s*)[^\|]*(\|)', make_replacer(clones)),
+              (r'(\| Уникальные клоны \(14Д\)\s+\|\s*)[^\|]*(\|)', make_replacer(unique_clones)),
+              (r'(\| Звёзды\s+\|\s*)[^\|]*(\|)', make_replacer(stars)),
+              (r'(\| Форки\s+\|\s*)[^\|]*(\|)', make_replacer(forks)),
+          ]
+          
+          # Заменяем значения
+          for pattern, replacer in replacements:
+              content = re.sub(pattern, replacer, content)
+          
+          # Записываем обратно
+          with open('README.md', 'w', encoding='utf-8') as f:
+              f.write(content)
+          
+          print("✅ README обновлен со статистикой")
+          print(f"  Просмотры: {views}")
+          print(f"  Уникальные посетители: {visitors}")
+          print(f"  Клоны: {clones}")
+          print(f"  Уникальные клоны: {unique_clones}")
+          print(f"  Звёзды: {stars}")
+          print(f"  Форки: {forks}")
+          PYTHON_SCRIPT
+        env:
+          VIEWS: ${{ steps.stats.outputs.views }}
+          VISITORS: ${{ steps.stats.outputs.visitors }}
+          CLONES: ${{ steps.stats.outputs.clones }}
+          UNIQUE_CLONES: ${{ steps.stats.outputs.unique_clones }}
+          STARS: ${{ steps.stats.outputs.stars }}
+          FORKS: ${{ steps.stats.outputs.forks }}
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Важно: git diff НЕ видит untracked-файлы, поэтому repo-stats.json
+          # нужно учитывать через git status.
+          if [ -f "repo-stats.json" ]; then
+            git add "repo-stats.json"
+          fi
+          git add README.md
+
+          if ! git diff --cached --quiet; then
+            git commit -m "update statistics [automated]"
+            git pull --rebase origin main
+            git push origin main
+            echo "✅ Статистика обновлена и закоммичена"
+          else
+            echo "ℹ️ Статистика не изменилась, коммит не требуется"
+          fi

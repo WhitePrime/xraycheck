@@ -1,0 +1,1319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>X-Ray.Check</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --background: #fafafa;
+            --foreground: #0a0a0a;
+            --card: #ffffff;
+            --card-border: #e5e5e5;
+            --muted: #737373;
+            --muted-foreground: #a3a3a3;
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --primary: #18181b;
+            --ring: rgba(37, 99, 235, 0.3);
+            --radius: 0.75rem;
+            --radius-lg: 1rem;
+            --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--background);
+            color: var(--foreground);
+            min-height: 100vh;
+            padding: 3rem 1.5rem 4rem;
+            line-height: 1.6;
+        }
+
+        .page {
+            max-width: 720px;
+            margin: 0 auto;
+        }
+
+        /* Header - hero style like ReactViTenStack */
+        header {
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+
+        .section-icons {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .section-icon {
+            width: 44px;
+            height: 44px;
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius);
+            background: var(--card);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--muted);
+            text-decoration: none;
+            transition: color 0.2s, border-color 0.2s, box-shadow 0.2s;
+            box-shadow: var(--shadow);
+        }
+
+        .section-icon:hover {
+            color: var(--accent);
+            border-color: var(--accent);
+            box-shadow: var(--shadow-md);
+        }
+
+        .section-icon svg {
+            width: 22px;
+            height: 22px;
+        }
+
+        .header-title {
+            margin-bottom: 0.5rem;
+        }
+
+        .header-title h1 {
+            font-size: clamp(2rem, 5vw, 3rem);
+            font-weight: 700;
+            letter-spacing: -0.025em;
+            line-height: 1.2;
+            color: var(--primary);
+        }
+
+        .header-title .brand {
+            color: var(--primary);
+        }
+
+        .header-title .brand-accent {
+            color: var(--accent);
+        }
+
+        .header-subtitle {
+            font-size: 1rem;
+            color: var(--muted-foreground);
+            font-weight: 400;
+            max-width: 420px;
+            margin: 0 auto;
+        }
+
+        /* Section title - small caps / label style */
+        .section-title {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+
+        .config-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        /* Cards - Shadcn-style: white, border, rounded-lg, subtle shadow */
+        .config-card {
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-lg);
+            padding: 1.25rem 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+            box-shadow: var(--shadow);
+            transition: box-shadow 0.2s, border-color 0.2s;
+        }
+
+        .config-card:hover {
+            box-shadow: var(--shadow-md);
+            border-color: #d4d4d4;
+        }
+
+        .config-card .download-icon {
+            width: 40px;
+            height: 40px;
+            color: var(--muted);
+            flex-shrink: 0;
+        }
+
+        .config-card .download-icon svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .config-card .info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .config-card .title-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .config-card .title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--foreground);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        .config-card .title-icon {
+            width: 16px;
+            height: 16px;
+            color: var(--muted);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .config-card:hover .title-icon {
+            color: var(--accent);
+        }
+
+        .config-card .title-icon svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .config-card .badge {
+            font-size: 0.6875rem;
+            font-weight: 600;
+            padding: 0.2rem 0.5rem;
+            border-radius: 9999px;
+            background: rgba(37, 99, 235, 0.12);
+            color: var(--accent);
+        }
+
+        .config-card .updated {
+            font-size: 0.8125rem;
+            color: var(--muted-foreground);
+            margin-top: 0.25rem;
+        }
+
+        .config-card .actions {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .config-card .action-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        .config-card .action-label {
+            font-size: 0.75rem;
+            color: var(--muted);
+            font-weight: 500;
+        }
+
+        .config-card .action-btn {
+            height: 40px;
+            padding: 0 0.75rem;
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius);
+            background: var(--card);
+            color: var(--muted);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+            transition: color 0.2s, border-color 0.2s, background 0.2s;
+            box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+            font-size: 0.75rem;
+            font-weight: 500;
+            font-family: inherit;
+        }
+
+        .config-card .action-btn:hover {
+            color: var(--accent);
+            border-color: var(--accent);
+            background: rgba(37, 99, 235, 0.06);
+        }
+
+        .config-card .action-btn svg {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+
+        /* Copy notice */
+        .copy-notice {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%) translateY(8px);
+            padding: 0.75rem 1.5rem;
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius);
+            font-size: 0.875rem;
+            color: var(--foreground);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s, transform 0.2s;
+            z-index: 100;
+            box-shadow: var(--shadow-md);
+        }
+
+        .copy-notice.is-visible {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        /* VPN clients table - collapsible card */
+        .vpn-section {
+            margin-top: 2.5rem;
+        }
+
+        .vpn-collapsible {
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .vpn-collapsible-trigger {
+            width: 100%;
+            padding: 1rem 1.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font: inherit;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            text-align: left;
+            transition: background 0.2s, color 0.2s;
+        }
+
+        .vpn-collapsible-trigger:hover {
+            background: #fafafa;
+            color: var(--foreground);
+        }
+
+        .vpn-collapsible-trigger .vpn-chevron {
+            flex-shrink: 0;
+            width: 20px;
+            height: 20px;
+            color: var(--muted);
+            transition: transform 0.2s;
+        }
+
+        .vpn-collapsible.is-open .vpn-chevron {
+            transform: rotate(180deg);
+        }
+
+        .vpn-collapsible-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.25s ease-out;
+        }
+
+        .vpn-collapsible.is-open .vpn-collapsible-content {
+            max-height: 400px;
+            transition: max-height 0.3s ease-in;
+        }
+
+        .vpn-table-wrap {
+            background: var(--card);
+            border-top: 1px solid var(--card-border);
+            overflow: hidden;
+        }
+
+        .vpn-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+        }
+
+        .vpn-table th {
+            text-align: left;
+            padding: 1rem 1.25rem;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 0.75rem;
+            background: #fafafa;
+            border-bottom: 1px solid var(--card-border);
+        }
+
+        .vpn-table td {
+            padding: 0.75rem 1.25rem;
+            border-bottom: 1px solid var(--card-border);
+            color: var(--foreground);
+            vertical-align: top;
+        }
+
+        .vpn-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .vpn-table a {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 500;
+            display: inline-block;
+            margin-bottom: 0.35rem;
+        }
+
+        .vpn-table a:hover {
+            color: var(--accent-hover);
+            text-decoration: underline;
+        }
+
+        .vpn-table a:last-child {
+            margin-bottom: 0;
+        }
+
+        .view-counter {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+            text-align: center;
+            margin-top: 0.75rem;
+            font-size: 0.75rem;
+            color: var(--muted-foreground);
+        }
+
+        .view-counter .view-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #22c55e;
+            flex-shrink: 0;
+            animation: view-dot-blink 1.4s ease-in-out infinite;
+        }
+
+        @keyframes view-dot-blink {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
+            50% { opacity: 0.5; box-shadow: 0 0 0 4px rgba(34, 197, 94, 0); }
+        }
+
+        .view-counter span {
+            font-weight: 600;
+            color: var(--foreground);
+        }
+
+        /* Config link counters (per FULL / TOP 100) - under each button */
+        .config-card .action-group {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        .config-card .action-group .link-count-wrap {
+            font-size: 0.55rem;
+            color: var(--muted-foreground);
+            line-height: 1.2;
+        }
+        .config-card .action-group .link-count-wrap .link-count {
+            font-weight: 600;
+            color: var(--muted-foreground);
+        }
+        .config-card .action-group .link-count-wrap .link-count[data-loaded="true"] {
+            color: var(--foreground);
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 2.5rem;
+            font-size: 0.8125rem;
+            color: var(--muted-foreground);
+        }
+
+        .footer a {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .footer a:hover {
+            color: var(--accent-hover);
+            text-decoration: underline;
+        }
+
+        /* Repo stats modal */
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(10, 10, 10, 0.55);
+            backdrop-filter: blur(6px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 1.25rem;
+            z-index: 200;
+        }
+
+        .modal-backdrop.is-open {
+            display: flex;
+        }
+
+        .modal {
+            width: min(720px, 100%);
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: calc(var(--radius-lg) + 0.25rem);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+            overflow: hidden;
+            transform: translateY(6px);
+            opacity: 0;
+            animation: modal-in 180ms ease-out forwards;
+        }
+
+        @keyframes modal-in {
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .modal-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--card-border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+        }
+
+        .modal-title {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+            font-weight: 700;
+            color: var(--foreground);
+            letter-spacing: -0.01em;
+        }
+
+        .modal-title svg {
+            width: 18px;
+            height: 18px;
+            color: var(--accent);
+        }
+
+        .modal-close {
+            width: 40px;
+            height: 40px;
+            border-radius: var(--radius);
+            border: 1px solid var(--card-border);
+            background: var(--card);
+            cursor: pointer;
+            color: var(--muted);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: color 0.2s, border-color 0.2s, background 0.2s;
+        }
+
+        .modal-close:hover {
+            color: var(--accent);
+            border-color: var(--accent);
+            background: rgba(37, 99, 235, 0.06);
+        }
+
+        .modal-close svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        .modal-tabs {
+            padding: 0.75rem 1.25rem 0.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .modal-tab {
+            border: 1px solid var(--card-border);
+            background: var(--card);
+            color: var(--muted);
+            height: 36px;
+            padding: 0 0.75rem;
+            border-radius: 9999px;
+            cursor: pointer;
+            font: inherit;
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            transition: color 0.2s, border-color 0.2s, background 0.2s;
+        }
+
+        .modal-tab:hover {
+            color: var(--foreground);
+            border-color: #d4d4d4;
+        }
+
+        .modal-tab[aria-selected="true"] {
+            color: var(--accent);
+            border-color: rgba(37, 99, 235, 0.35);
+            background: rgba(37, 99, 235, 0.08);
+        }
+
+        .modal-body {
+            padding: 0.75rem 1.25rem 1.25rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.75rem;
+        }
+
+        .stat-card {
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-lg);
+            padding: 0.9rem 1rem;
+            background: #fff;
+            box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+        }
+
+        .stat-label {
+            font-size: 0.7rem;
+            color: var(--muted);
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .stat-value {
+            margin-top: 0.35rem;
+            font-size: 1.25rem;
+            font-weight: 800;
+            color: var(--foreground);
+            letter-spacing: -0.02em;
+        }
+
+        .stat-sub {
+            margin-top: 0.25rem;
+            font-size: 0.75rem;
+            color: var(--muted-foreground);
+        }
+
+        .stats-list {
+            margin-top: 0.25rem;
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            background: #fff;
+        }
+
+        .stats-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding: 0.85rem 1rem;
+            border-bottom: 1px solid var(--card-border);
+        }
+
+        .stats-row:last-child {
+            border-bottom: none;
+        }
+
+        .stats-row .left {
+            min-width: 0;
+        }
+
+        .stats-row .name {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--foreground);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 440px;
+        }
+
+        .stats-row .hint {
+            margin-top: 0.15rem;
+            font-size: 0.75rem;
+            color: var(--muted-foreground);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 440px;
+        }
+
+        .stats-row .right {
+            display: inline-flex;
+            align-items: baseline;
+            gap: 0.6rem;
+            flex-shrink: 0;
+            color: var(--muted);
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .stats-row .count {
+            color: var(--foreground);
+            font-size: 0.95rem;
+            font-weight: 800;
+            letter-spacing: -0.01em;
+        }
+
+        .stats-meta {
+            margin-top: 0.75rem;
+            text-align: center;
+            font-size: 0.75rem;
+            color: var(--muted-foreground);
+        }
+
+        @media (max-width: 640px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            .stats-row .name,
+            .stats-row .hint {
+                max-width: 220px;
+            }
+        }
+
+        @media (max-width: 640px) {
+            body {
+                padding: 2rem 1rem 3rem;
+            }
+
+            .config-card {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .config-card .actions {
+                justify-content: flex-end;
+                flex-wrap: wrap;
+            }
+
+            .vpn-table-wrap {
+                overflow-x: auto;
+            }
+
+            .vpn-table th,
+            .vpn-table td {
+                padding: 0.6rem 0.75rem;
+                font-size: 0.8125rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <header>
+            <div class="section-icons">
+                <a href="https://t.me/xraycheck" class="section-icon" target="_blank" rel="noopener noreferrer" title="XRayCheck в Telegram">
+                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                </a>
+                <a href="https://github.com/WhitePrime/xraycheck" class="section-icon" target="_blank" rel="noopener noreferrer" title="GitHub repository">
+                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                </a>
+                <button type="button" class="section-icon" id="repo-stats-btn" title="Repository statistics" aria-haspopup="dialog" aria-controls="repo-stats-modal-backdrop">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path d="M3 3v18h18"/>
+                        <path d="M7 14v4"/>
+                        <path d="M12 10v8"/>
+                        <path d="M17 6v12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="header-title">
+                <h1><span class="brand">X-Ray.</span><span class="brand-accent">Check</span></h1>
+            </div>
+            <p class="view-counter"><span class="view-dot" aria-hidden="true"></span> <span id="busuanzi_value_page_pv">-</span> views</p>
+            <p class="header-subtitle"></p>
+        </header>
+
+        <h2 class="section-title">Configurations updated automatically</h2>
+        <div class="config-list">
+            <article class="config-card">
+                <span class="download-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></span>
+                <div class="info">
+                    <div class="title-row">
+                        <span class="title">White List Speedtest</span>
+                        <span class="badge">Experimental</span>
+                    </div>
+                    <div class="updated" data-file="configs/white-list_available_st">Updated automatically</div>
+                </div>
+                <div class="actions">
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-href="https://whiteprime.github.io/xraycheck/configs/white-list_available_st" data-counter-key="white_list_available_st_full" title="Copy link"><span class="action-btn-text">FULL</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><span class="link-count-wrap" title="link clicks"><span class="link-count" data-counter-key="white_list_available_st_full" data-loaded="false">-</span> is copied</span></span>
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-href="https://whiteprime.github.io/xraycheck/configs/white-list_available_st(top100)" data-counter-key="white_list_available_st_top100" title="Copy link"><span class="action-btn-text">TOP 100</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><span class="link-count-wrap" title="link clicks"><span class="link-count" data-counter-key="white_list_available_st_top100" data-loaded="false">-</span> is copied</span></span>
+                </div>
+            </article>
+
+            <article class="config-card">
+                <span class="download-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></span>
+                <div class="info">
+                    <div class="title-row">
+                        <span class="title">Available Speedtest</span>
+                        <span class="badge">Experimental</span>
+                    </div>
+                    <div class="updated" data-file="configs/available_st">Updated automatically</div>
+                </div>
+                <div class="actions">
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-href="https://whiteprime.github.io/xraycheck/configs/available_st" data-counter-key="available_st_full" title="Copy link"><span class="action-btn-text">FULL</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><span class="link-count-wrap" title="link clicks"><span class="link-count" data-counter-key="available_st_full" data-loaded="false">-</span> is copied</span></span>
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-href="https://whiteprime.github.io/xraycheck/configs/available_st(top100)" data-counter-key="available_st_top100" title="Copy link"><span class="action-btn-text">TOP 100</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><span class="link-count-wrap" title="link clicks"><span class="link-count" data-counter-key="available_st_top100" data-loaded="false">-</span> is copied</span></span>
+                </div>
+            </article>
+
+            <article class="config-card">
+                <span class="download-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></span>
+                <div class="info">
+                    <div class="title-row">
+                        <span class="title">Available</span>
+                    </div>
+                    <div class="updated" data-file="configs/available">Updated automatically</div>
+                </div>
+                <div class="actions">
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-href="https://whiteprime.github.io/xraycheck/configs/available" data-counter-key="available_full" title="Copy link"><span class="action-btn-text">FULL</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><span class="link-count-wrap" title="link clicks"><span class="link-count" data-counter-key="available_full" data-loaded="false">-</span> is copied</span></span>
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-href="https://whiteprime.github.io/xraycheck/configs/available(top100)" data-counter-key="available_top100" title="Copy link"><span class="action-btn-text">TOP 100</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><span class="link-count-wrap" title="link clicks"><span class="link-count" data-counter-key="available_top100" data-loaded="false">-</span> is copied</span></span>
+                </div>
+            </article>
+
+            <article class="config-card">
+                <span class="download-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></span>
+                <div class="info">
+                    <div class="title-row">
+                        <span class="title">White List</span>
+                    </div>
+                    <div class="updated" data-file="configs/white-list_available">Updated automatically</div>
+                </div>
+                <div class="actions">
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-href="https://whiteprime.github.io/xraycheck/configs/white-list_available" data-counter-key="white_list_available_full" title="Copy link"><span class="action-btn-text">FULL</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><span class="link-count-wrap" title="link clicks"><span class="link-count" data-counter-key="white_list_available_full" data-loaded="false">-</span> is copied</span></span>
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-href="https://whiteprime.github.io/xraycheck/configs/white-list_available(top100)" data-counter-key="white_list_available_top100" title="Copy link"><span class="action-btn-text">TOP 100</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><span class="link-count-wrap" title="link clicks"><span class="link-count" data-counter-key="white_list_available_top100" data-loaded="false">-</span> is copied</span></span>
+                </div>
+            </article>
+
+            <article class="config-card">
+                <span class="download-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></span>
+                <div class="info">
+                    <div class="title-row">
+                        <span class="title">Telegram Proxy<span class="title-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg></span></span>
+                        <span class="badge">White list</span>
+                    </div>
+                    <div class="updated" data-file="configs/white-list_mtproto">Updated automatically</div>
+                </div>
+                <div class="actions">
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-copy-content="true" data-fetch-path="configs/white-list_mtproto" data-href="https://whiteprime.github.io/xraycheck/configs/white-list_mtproto" data-counter-key="white_list_mtproto_full" title="Copy contents"><span class="action-btn-text">FULL</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><span class="link-count-wrap" title="link clicks"><span class="link-count" data-counter-key="white_list_mtproto_full" data-loaded="false">-</span> is copied</span></span>
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-copy-content="true" data-fetch-path="configs/white-list_mtproto(top100)" data-href="https://whiteprime.github.io/xraycheck/configs/white-list_mtproto(top100)" data-counter-key="white_list_mtproto_top100" title="Copy contents"><span class="action-btn-text">TOP 100</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><span class="link-count-wrap" title="link clicks"><span class="link-count" data-counter-key="white_list_mtproto_top100" data-loaded="false">-</span> is copied</span></span>
+                    <span class="action-group"><button type="button" class="action-btn" data-random-mtproto-wl="true" data-counter-key="white_list_mtproto_random1" title="Copy 10 random Telegram Proxy White-list from TOP 100"><span class="action-btn-text">RANDOM 10</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><span class="link-count-wrap" title="link clicks"><span class="link-count" data-counter-key="white_list_mtproto_random1" data-loaded="false">-</span> is copied</span></span>
+                </div>
+            </article>
+
+            <article class="config-card">
+                <span class="download-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></span>
+                <div class="info">
+                    <div class="title-row">
+                        <span class="title">Telegram Proxy<span class="title-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg></span></span>
+                    </div>
+                    <div class="updated" data-file="configs/mtproto">Updated automatically</div>
+                </div>
+                <div class="actions">
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-copy-content="true" data-fetch-path="configs/mtproto" data-href="https://whiteprime.github.io/xraycheck/configs/mtproto" data-counter-key="mtproto_full" title="Copy contents"><span class="action-btn-text">FULL</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><span class="link-count-wrap" title="link clicks"><span class="link-count" data-counter-key="mtproto_full" data-loaded="false">-</span> is copied</span></span>
+                    <span class="action-group"><button type="button" class="action-btn" data-copy-link data-copy-content="true" data-fetch-path="configs/mtproto(top100)" data-href="https://whiteprime.github.io/xraycheck/configs/mtproto(top100)" data-counter-key="mtproto_top100" title="Copy contents"><span class="action-btn-text">TOP 100</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><span class="link-count-wrap" title="link clicks"><span class="link-count" data-counter-key="mtproto_top100" data-loaded="false">-</span> is copied</span></span>
+                    <span class="action-group"><button type="button" class="action-btn" data-random-mtproto="true" data-counter-key="mtproto_random1" title="Copy 10 random Telegram Proxy from TOP 100"><span class="action-btn-text">RANDOM 10</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><span class="link-count-wrap" title="link clicks"><span class="link-count" data-counter-key="mtproto_random1" data-loaded="false">-</span> is copied</span></span>
+                </div>
+            </article>
+        </div>
+
+        <div class="vpn-section vpn-collapsible" id="vpn-collapsible">
+            <button type="button" class="vpn-collapsible-trigger" id="vpn-collapsible-trigger" aria-expanded="false" aria-controls="vpn-collapsible-content">
+                <span>VPN clients</span>
+                <svg class="vpn-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div class="vpn-collapsible-content" id="vpn-collapsible-content" role="region">
+                <div class="vpn-table-wrap">
+                    <table class="vpn-table">
+                        <thead>
+                            <tr>
+                                <th>Android</th>
+                                <th>Windows</th>
+                                <th>Apple</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><a href="https://github.com/dyhkwong/Exclave/releases/" target="_blank" rel="noopener noreferrer">Exclave</a></td>
+                                <td><a href="https://github.com/throneproj/Throne/releases" target="_blank" rel="noopener noreferrer">Throne</a></td>
+                                <td><a href="https://apps.apple.com/ru/app/v2box-v2ray-client/id6446814690" target="_blank" rel="noopener noreferrer">V2Box</a></td>
+                            </tr>
+                            <tr>
+                                <td><a href="https://play.google.com/store/apps/details?id=com.v2raytun.android" target="_blank" rel="noopener noreferrer">v2rayTun</a></td>
+                                <td><a href="https://storage.v2raytun.com/v2RayTun_Setup.exe" target="_blank" rel="noopener noreferrer">v2RayTun</a></td>
+                                <td><a href="https://apps.apple.com/en/app/v2raytun/id6476628951" target="_blank" rel="noopener noreferrer">v2RayTun</a></td>
+                            </tr>
+                            <tr>
+                                <td><a href="https://play.google.com/store/apps/details?id=com.happproxy" target="_blank" rel="noopener noreferrer">Happ</a></td>
+                                <td><a href="https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe" target="_blank" rel="noopener noreferrer">Happ</a></td>
+                                <td><a href="https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973" target="_blank" rel="noopener noreferrer">Happ</a></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <p class="footer">Made with ❤️ by <a href="https://github.com/WhitePrime" target="_blank" rel="noopener noreferrer">White Prime</a></p>
+    </div>
+
+    <div class="copy-notice" id="copy-notice" aria-live="polite">Link copied</div>
+
+    <div class="modal-backdrop" id="repo-stats-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="repo-stats-title">
+        <div class="modal" role="document">
+            <div class="modal-header">
+                <div class="modal-title" id="repo-stats-title">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path d="M3 3v18h18"/>
+                        <path d="M7 14v4"/>
+                        <path d="M12 10v8"/>
+                        <path d="M17 6v12"/>
+                    </svg>
+                    <span>Repository statistics</span>
+                </div>
+                <button type="button" class="modal-close" id="repo-stats-close" aria-label="Close statistics">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6 6 18"/><path d="M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="modal-tabs" role="tablist" aria-label="Statistics tabs">
+                <button type="button" class="modal-tab" role="tab" aria-selected="true" data-tab="general">General</button>
+                <button type="button" class="modal-tab" role="tab" aria-selected="false" data-tab="referrers">Sources</button>
+                <button type="button" class="modal-tab" role="tab" aria-selected="false" data-tab="content">Content</button>
+            </div>
+            <div class="modal-body">
+                <div id="repo-stats-panel-general" data-panel="general"></div>
+                <div id="repo-stats-panel-referrers" data-panel="referrers" style="display:none"></div>
+                <div id="repo-stats-panel-content" data-panel="content" style="display:none"></div>
+                <div class="stats-meta" id="repo-stats-meta">Loading…</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            var notice = document.getElementById('copy-notice');
+            function showNotice() {
+                if (notice) {
+                    notice.classList.add('is-visible');
+                    setTimeout(function() { notice.classList.remove('is-visible'); }, 2000);
+                }
+            }
+            function copyUrl(url) {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(url).then(showNotice).catch(fallback);
+                } else {
+                    fallback();
+                }
+                function fallback() {
+                    var ta = document.createElement('textarea');
+                    ta.value = url;
+                    ta.setAttribute('readonly', '');
+                    ta.style.position = 'absolute';
+                    ta.style.left = '-9999px';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    try {
+                        document.execCommand('copy');
+                        showNotice();
+                    } catch (e) {}
+                    document.body.removeChild(ta);
+                }
+            }
+            var COUNTER_KEY_PREFIX = 'xraycheck_';
+            var COUNTER_API = 'https://countapi.mileshilliard.com/api/v1';
+
+            function formatCount(n) {
+                var num = typeof n === 'string' ? parseInt(n, 10) : n;
+                if (isNaN(num)) return '-';
+                if (num >= 1e6) return (num / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+                if (num >= 1e3) return (num / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
+                return String(num);
+            }
+
+            function updateCountEl(key, value) {
+                var el = document.querySelector('.link-count[data-counter-key="' + key + '"]');
+                if (el) {
+                    el.textContent = formatCount(value);
+                    el.setAttribute('data-loaded', 'true');
+                }
+            }
+
+            function counterKey(key) {
+                return COUNTER_KEY_PREFIX + key;
+            }
+
+            function loadCount(key) {
+                var apiKey = counterKey(key);
+                fetch(COUNTER_API + '/get/' + encodeURIComponent(apiKey))
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data && data.value != null) updateCountEl(key, data.value);
+                    })
+                    .catch(function() {});
+            }
+
+            function hitCount(key) {
+                var apiKey = counterKey(key);
+                fetch(COUNTER_API + '/hit/' + encodeURIComponent(apiKey))
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data && data.value != null) updateCountEl(key, data.value);
+                    })
+                    .catch(function() {});
+            }
+
+            document.querySelectorAll('.link-count[data-counter-key]').forEach(function(el) {
+                var key = el.getAttribute('data-counter-key');
+                if (key) loadCount(key);
+            });
+
+            document.querySelectorAll('[data-copy-link][data-href]').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var url = this.getAttribute('data-href');
+                    var key = this.getAttribute('data-counter-key');
+                    if (this.getAttribute('data-copy-content') === 'true') {
+                        var path = this.getAttribute('data-fetch-path');
+                        if (path) {
+                            fetch(path).then(function(r) { return r.ok ? r.text() : Promise.reject(); })
+                                .then(function(text) {
+                                    if (text) copyUrl(text.trim());
+                                    if (key) hitCount(key);
+                                })
+                                .catch(function() {});
+                        }
+                        return;
+                    }
+                    if (url) copyUrl(url);
+                    if (key) hitCount(key);
+                });
+            });
+
+            // RANDOM 10 button for Telegram Proxy(top100)
+            var mtprotoRandomLines = null;
+            function loadMtprotoRandomLines() {
+                if (Array.isArray(mtprotoRandomLines) && mtprotoRandomLines.length > 0) {
+                    return Promise.resolve(mtprotoRandomLines);
+                }
+                return fetch('configs/mtproto(top100)')
+                    .then(function(r) { return r.ok ? r.text() : Promise.reject(); })
+                    .then(function(text) {
+                        var lines = text.split(/\r?\n/).map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
+                        mtprotoRandomLines = lines;
+                        return lines;
+                    });
+            }
+
+            document.querySelectorAll('[data-random-mtproto="true"]').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var key = this.getAttribute('data-counter-key');
+                    loadMtprotoRandomLines()
+                        .then(function(lines) {
+                            if (!lines || !lines.length) return;
+                            var count = Math.min(10, lines.length);
+                            var shuffled = lines.slice();
+                            for (var i = shuffled.length - 1; i > 0; i--) {
+                                var j = Math.floor(Math.random() * (i + 1));
+                                var tmp = shuffled[i];
+                                shuffled[i] = shuffled[j];
+                                shuffled[j] = tmp;
+                            }
+                            var selected = shuffled.slice(0, count);
+                            // Разделяем прокси пустой строкой для наглядного разделения.
+                            var text = selected.join('\n\n');
+                            if (text) copyUrl(text);
+                            if (key) hitCount(key);
+                        })
+                        .catch(function() {});
+                });
+            });
+
+            // RANDOM 10 button for Telegram Proxy White-list (top100)
+            var mtprotoWlRandomLines = null;
+            function loadMtprotoWlRandomLines() {
+                if (Array.isArray(mtprotoWlRandomLines) && mtprotoWlRandomLines.length > 0) {
+                    return Promise.resolve(mtprotoWlRandomLines);
+                }
+                return fetch('configs/white-list_mtproto(top100)')
+                    .then(function(r) { return r.ok ? r.text() : Promise.reject(); })
+                    .then(function(text) {
+                        var lines = text.split(/\r?\n/).map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
+                        mtprotoWlRandomLines = lines;
+                        return lines;
+                    });
+            }
+            document.querySelectorAll('[data-random-mtproto-wl="true"]').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var key = this.getAttribute('data-counter-key');
+                    loadMtprotoWlRandomLines()
+                        .then(function(lines) {
+                            if (!lines || !lines.length) return;
+                            var count = Math.min(10, lines.length);
+                            var shuffled = lines.slice();
+                            for (var i = shuffled.length - 1; i > 0; i--) {
+                                var j = Math.floor(Math.random() * (i + 1));
+                                var tmp = shuffled[i];
+                                shuffled[i] = shuffled[j];
+                                shuffled[j] = tmp;
+                            }
+                            var selected = shuffled.slice(0, count);
+                            var text = selected.join('\n\n');
+                            if (text) copyUrl(text);
+                            if (key) hitCount(key);
+                        })
+                        .catch(function() {});
+                });
+            });
+
+            (function() {
+                var block = document.getElementById('vpn-collapsible');
+                var trigger = document.getElementById('vpn-collapsible-trigger');
+                var content = document.getElementById('vpn-collapsible-content');
+                if (block && trigger && content) {
+                    trigger.addEventListener('click', function() {
+                        var isOpen = block.classList.toggle('is-open');
+                        trigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+                    });
+                }
+            })();
+
+            function formatMsk(isoDateStr) {
+                var d = new Date(isoDateStr);
+                var timeStr = d.toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit', hour12: false });
+                var dateStr = d.toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', year: 'numeric' });
+                return timeStr + ' ' + dateStr;
+            }
+            function setUpdated(el, text, count) {
+                if (!el) return;
+                el.textContent = 'Updated: ' + text + (count != null ? ' · ' + count.toLocaleString('ru-RU') + ' configs' : '');
+            }
+            fetch('configs/last-updated.json')
+                .then(function(r) { return r.ok ? r.json() : Promise.reject(); })
+                .then(function(data) {
+                    if (!data || typeof data !== 'object') return;
+                    document.querySelectorAll('.updated[data-file]').forEach(function(el) {
+                        var path = el.getAttribute('data-file');
+                        var val = path && data[path];
+                        if (!val) return;
+                        var iso = typeof val === 'string' ? val : val.updated;
+                        var count = typeof val === 'object' && val.count != null ? val.count : null;
+                        if (iso) setUpdated(el, formatMsk(iso), count);
+                    });
+                })
+                .catch(function() {});
+
+            // Repo stats modal (data is pre-generated by GitHub Actions to repo-stats.json)
+            (function() {
+                var btn = document.getElementById('repo-stats-btn');
+                var backdrop = document.getElementById('repo-stats-modal-backdrop');
+                var closeBtn = document.getElementById('repo-stats-close');
+                var meta = document.getElementById('repo-stats-meta');
+
+                if (!btn || !backdrop || !closeBtn || !meta) return;
+
+                var tabs = Array.prototype.slice.call(backdrop.querySelectorAll('.modal-tab[data-tab]'));
+                var panels = Array.prototype.slice.call(backdrop.querySelectorAll('[data-panel]'));
+                var loaded = false;
+                var stats = null;
+
+                function esc(s) {
+                    return String(s == null ? '' : s)
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;')
+                        .replace(/'/g, '&#39;');
+                }
+
+                function fmt(n) {
+                    var num = typeof n === 'string' ? parseInt(n, 10) : n;
+                    if (isNaN(num)) return '-';
+                    return num.toLocaleString('ru-RU');
+                }
+
+                function fmtCompact(n) {
+                    var num = typeof n === 'string' ? parseInt(n, 10) : n;
+                    if (isNaN(num)) return '-';
+                    if (num >= 1e6) return (num / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+                    if (num >= 1e3) return (num / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
+                    return String(num);
+                }
+
+                function setTab(name) {
+                    tabs.forEach(function(t) {
+                        var isActive = t.getAttribute('data-tab') === name;
+                        t.setAttribute('aria-selected', isActive ? 'true' : 'false');
+                    });
+                    panels.forEach(function(p) {
+                        p.style.display = (p.getAttribute('data-panel') === name) ? '' : 'none';
+                    });
+                }
+
+                function renderGeneral() {
+                    var el = document.getElementById('repo-stats-panel-general');
+                    if (!el) return;
+
+                    var stars = stats && stats.stars != null ? stats.stars : 0;
+                    var forks = stats && stats.forks != null ? stats.forks : 0;
+                    var views = stats && stats.views_14d != null ? stats.views_14d : 0;
+                    var visitors = stats && stats.unique_visitors_14d != null ? stats.unique_visitors_14d : 0;
+                    var clones = stats && stats.clones_14d != null ? stats.clones_14d : 0;
+                    var uclones = stats && stats.unique_clones_14d != null ? stats.unique_clones_14d : 0;
+
+                    el.innerHTML =
+                        '<div class="stats-grid">' +
+                            '<div class="stat-card"><div class="stat-label">Views (14d)</div><div class="stat-value">' + esc(fmtCompact(views)) + '</div><div class="stat-sub">Unique: ' + esc(fmt(visitors)) + '</div></div>' +
+                            '<div class="stat-card"><div class="stat-label">Clones (14d)</div><div class="stat-value">' + esc(fmtCompact(clones)) + '</div><div class="stat-sub">Unique: ' + esc(fmt(uclones)) + '</div></div>' +
+                            '<div class="stat-card"><div class="stat-label">Stars</div><div class="stat-value">' + esc(fmtCompact(stars)) + '</div><div class="stat-sub">GitHub stargazers</div></div>' +
+                            '<div class="stat-card"><div class="stat-label">Forks</div><div class="stat-value">' + esc(fmtCompact(forks)) + '</div><div class="stat-sub">GitHub forks</div></div>' +
+                        '</div>';
+                }
+
+                function renderRows(items, opts) {
+                    if (!Array.isArray(items) || items.length === 0) {
+                        return '<div class="stats-list"><div class="stats-row"><div class="left"><div class="name">No data</div><div class="hint">It may require an admin token for traffic statistics.</div></div><div class="right"><span class="count">-</span></div></div></div>';
+                    }
+
+                    var rows = items.map(function(it) {
+                        var name = opts && opts.name ? opts.name(it) : (it && it.referrer);
+                        var hint = opts && opts.hint ? opts.hint(it) : '';
+                        var count = (it && it.count != null) ? it.count : 0;
+                        var uniques = (it && it.uniques != null) ? it.uniques : null;
+                        return (
+                            '<div class="stats-row">' +
+                                '<div class="left">' +
+                                    '<div class="name">' + esc(name || '-') + '</div>' +
+                                    (hint ? '<div class="hint">' + esc(hint) + '</div>' : '') +
+                                '</div>' +
+                                '<div class="right">' +
+                                    (uniques != null ? '<span>unique ' + esc(fmtCompact(uniques)) + '</span>' : '') +
+                                    '<span class="count">' + esc(fmtCompact(count)) + '</span>' +
+                                '</div>' +
+                            '</div>'
+                        );
+                    }).join('');
+
+                    return '<div class="stats-list">' + rows + '</div>';
+                }
+
+                function renderReferrers() {
+                    var el = document.getElementById('repo-stats-panel-referrers');
+                    if (!el) return;
+                    el.innerHTML = renderRows(stats && stats.referrers_14d, {
+                        name: function(it) { return (it && it.referrer) || '-'; },
+                        hint: function() { return 'Traffic source'; }
+                    });
+                }
+
+                function renderContent() {
+                    var el = document.getElementById('repo-stats-panel-content');
+                    if (!el) return;
+                    el.innerHTML = renderRows(stats && stats.popular_content_14d, {
+                        name: function(it) { return (it && it.path) || '-'; },
+                        hint: function(it) { return (it && it.title) ? it.title : 'Popular path'; }
+                    });
+                }
+
+                function renderAll() {
+                    renderGeneral();
+                    renderReferrers();
+                    renderContent();
+
+                    var fetched = stats && stats.fetched_at_utc ? new Date(stats.fetched_at_utc) : null;
+                    var when = fetched && !isNaN(fetched.getTime())
+                        ? fetched.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' }) + ' (MSK)'
+                        : '-';
+                    meta.textContent = 'Updated: ' + when;
+                }
+
+                function load() {
+                    if (loaded) return Promise.resolve();
+                    meta.textContent = 'Loading…';
+                    return fetch('repo-stats.json', { cache: 'no-store' })
+                        .then(function(r) { return r.ok ? r.json() : Promise.reject(); })
+                        .then(function(data) {
+                            stats = data || {};
+                            loaded = true;
+                            renderAll();
+                        })
+                        .catch(function() {
+                            loaded = true;
+                            stats = null;
+                            document.getElementById('repo-stats-panel-general').innerHTML =
+                                '<div class="stats-list"><div class="stats-row"><div class="left"><div class="name">Statistics unavailable</div><div class="hint">No `repo-stats.json` yet.</div></div><div class="right"><span class="count">-</span></div></div></div>';
+                            document.getElementById('repo-stats-panel-referrers').innerHTML = '';
+                            document.getElementById('repo-stats-panel-content').innerHTML = '';
+                            meta.textContent = 'Tip: wait for GitHub Pages deployment to regenerate stats.';
+                        });
+                }
+
+                function open() {
+                    backdrop.classList.add('is-open');
+                    document.body.style.overflow = 'hidden';
+                    setTab('general');
+                    load().then(function() { closeBtn.focus(); });
+                }
+
+                function close() {
+                    backdrop.classList.remove('is-open');
+                    document.body.style.overflow = '';
+                    btn.focus();
+                }
+
+                btn.addEventListener('click', open);
+                closeBtn.addEventListener('click', close);
+
+                backdrop.addEventListener('click', function(e) {
+                    if (e.target === backdrop) close();
+                });
+
+                document.addEventListener('keydown', function(e) {
+                    if (!backdrop.classList.contains('is-open')) return;
+                    if (e.key === 'Escape') close();
+                });
+
+                tabs.forEach(function(t) {
+                    t.addEventListener('click', function() {
+                        var tab = t.getAttribute('data-tab');
+                        if (tab) setTab(tab);
+                    });
+                });
+            })();
+        })();
+    </script>
+    <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+</body>
+</html>

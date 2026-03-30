@@ -1,0 +1,1195 @@
+# Копия daily-check, но с использованием SQLite-хранилища configs/notworkers.db.
+# Старый workflow daily-check.yml не трогаем.
+# После ночной цепочки (Update stats → Squash → Actualize notworkers) этот workflow также запускается по workflow_run от Actualize notworkers.
+# Для этого squash должен запускать notworkers с PAT (секрет REPO_STATS_TOKEN в squash-history.yml), иначе workflow_run после notworkers не срабатывает.
+
+name: Daily check
+
+on:
+  schedule:
+    # Дневные слоты. В 23:00 UTC стартует Update Repository Stats (stats→squash→notworkers); Daily check в это окно - только по workflow_run после Actualize notworkers.
+    - cron: '30 1 * * *'        # 01:30 UTC
+    - cron: '0,30 2-22 * * *'   # 02:00..22:30 UTC
+  workflow_run:
+    workflows: ["Actualize notworkers"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    # Ручной запуск из вкладки Actions
+
+concurrency:
+  group: xraycheck-serial
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  MODE: merge
+  LINKS_FILE: links.txt
+  OUTPUT_FILE: available
+  OUTPUT_DIR: configs
+  OUTPUT_ADD_DATE: 'false'
+  MAX_WORKERS: 280
+  EXPORT_FORMAT: txt
+  ENABLE_CACHE: 'false'
+  TEST_URLS: http://www.google.com/generate_204,http://www.cloudflare.com/cdn-cgi/trace
+  TEST_URLS_HTTPS: https://www.gstatic.com/generate_204
+  REQUIRE_HTTPS: 'true'
+  STRONG_STYLE_TEST: 'true'
+  STRONG_STYLE_TIMEOUT: 6
+  STRONG_MAX_RESPONSE_TIME: 5
+  STRONG_DOUBLE_CHECK: 'true'
+  STRONG_ATTEMPTS: 4
+  REQUESTS_PER_URL: 3
+  MIN_SUCCESSFUL_REQUESTS: 2
+  MIN_SUCCESSFUL_URLS: 2
+  REQUEST_DELAY: 0.1
+  CONNECT_TIMEOUT: 6
+  CONNECT_TIMEOUT_SLOW: 14
+  USE_ADAPTIVE_TIMEOUT: 'false'
+  MAX_RETRIES: 3
+  MAX_RESPONSE_TIME: 6
+  MIN_RESPONSE_SIZE: 0
+  MAX_LATENCY_MS: 4500
+  VERIFY_HTTPS_SSL: 'false'
+  STABILITY_CHECKS: 1
+  STABILITY_CHECK_DELAY: 1.5
+  STRICT_MODE: 'true'
+  STRICT_MODE_REQUIRE_ALL: 'true'
+  TEST_POST_REQUESTS: 'false'
+
+  # Speedtest (после checker: результат в available и available(top100))
+  SPEED_TEST_ENABLED: 'true'
+  SPEED_TEST_TIMEOUT: 6
+  SPEED_TEST_MODE: full
+  SPEED_TEST_METRIC: latency
+  SPEED_TEST_OUTPUT: separate_file
+  SPEED_TEST_REQUESTS: 12
+  SPEED_TEST_MIN_SUCCESS_RATIO: 0.2
+  SPEED_TEST_MIN_SUCCESS_COUNT: 2
+  SPEED_TEST_URL: https://www.gstatic.com/generate_204
+  SPEED_TEST_WORKERS: 700
+  SPEED_TEST_DOWNLOAD_TIMEOUT: 20
+  SPEED_TEST_DOWNLOAD_URL_SMALL: https://speed.cloudflare.com/__down?bytes=250000
+  SPEED_TEST_DOWNLOAD_URL_MEDIUM: https://speed.cloudflare.com/__down?bytes=1000000
+  MIN_SPEED_THRESHOLD_MBPS: 1.5
+  SPEED_TEST_DEBUG: 'false'
+  # Xray: уменьшены ожидания старта/SOCKS для ускорения массовых прогонов; параллельные xray ограничены отдельно.
+  XRAY_STARTUP_WAIT: 3.0
+  XRAY_STARTUP_POLL_INTERVAL: 0.2
+  XRAY_PORT_WAIT: 12
+  # XRAY_CHECKER_MAX_CONCURRENCY не задаём: в lib/config.py при ≤0 = MAX_WORKERS (полная параллельность xray)
+  BASE_PORT: 20000
+
+  # Отсев RU по гео IP: локальный MMDB (db-ip country-lite) + JSON-кэш + при необходимости ip-api; без cidrlist; не-RU - фазы 1-2, RU - отдельная фаза 3 → configs/ru и configs/ru(top100)
+  DOCKER_LOCATION_FILTER: RU
+
+  # strip_vpn_comments.py: текст комментария (после флага страны) для проверенных конфигов
+  AUTO_COMMENT: ' verified · t.me/XRayCheck'
+
+jobs:
+  preflight-update:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      cidrlist_updated: ${{ steps.update_cidrlist.outputs.cidrlist_updated }}
+      cidrlist_lines_before: ${{ steps.update_cidrlist.outputs.cidrlist_lines_before }}
+      cidrlist_lines_after: ${{ steps.update_cidrlist.outputs.cidrlist_lines_after }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update cidrlist from CIDR_WHITELIST_URL (if changed)
+        id: update_cidrlist
+        if: vars.CIDR_WHITELIST_URL != ''
+        env:
+          CIDR_WHITELIST_URL: ${{ vars.CIDR_WHITELIST_URL }}
+        run: |
+          set -e
+          LINES_BEFORE=$(wc -l < cidrlist 2>/dev/null || echo 0)
+          echo "Fetching CIDR list from CIDR_WHITELIST_URL..."
+          content=$(curl -sLf --connect-timeout 15 --max-time 30 "$CIDR_WHITELIST_URL") || { echo "::warning::Failed to fetch CIDR list, cidrlist unchanged"; echo "cidrlist_updated=false" >> $GITHUB_OUTPUT; exit 0; }
+          echo "$content" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*#' | sort > /tmp/remote_cidr
+          if [ ! -s /tmp/remote_cidr ]; then
+            echo "::warning::Remote CIDR list is empty (no non-comment lines), cidrlist unchanged"
+            echo "cidrlist_updated=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          local_body=""
+          if [ -f cidrlist ]; then
+            first=$(head -n 1 cidrlist)
+            if [ "${first#\#}" != "$first" ]; then
+              local_body=$(tail -n +2 cidrlist)
+            else
+              local_body=$(cat cidrlist)
+            fi
+          fi
+          echo "$local_body" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*#' | sort > /tmp/local_cidr
+          if diff -q /tmp/local_cidr /tmp/remote_cidr >/dev/null 2>&1; then
+            echo "cidrlist unchanged (same content as remote), skip"
+            echo "cidrlist_updated=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "# Updated: $(date -u '+%Y-%m-%d %H:%M:%S') UTC" > cidrlist
+          echo "$content" >> cidrlist
+          LINES_AFTER=$(wc -l < cidrlist)
+          echo "cidrlist_updated=true" >> $GITHUB_OUTPUT
+          echo "cidrlist_lines_before=$LINES_BEFORE" >> $GITHUB_OUTPUT
+          echo "cidrlist_lines_after=$LINES_AFTER" >> $GITHUB_OUTPUT
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add cidrlist
+          git commit -m "chore: update cidrlist [automated]"
+          if ! git pull --rebase origin main; then
+            echo "::warning::git pull --rebase failed, skipping push"
+            git rebase --abort || true
+            exit 0
+          fi
+          git push || echo "::warning::git push failed, continuing"
+
+      - name: Attempt to update Xray and Hysteria binaries (tools/)
+        run: |
+          bash tools/update-binaries.sh || echo "::warning::tools/update-binaries.sh failed, continuing with existing tools/"
+
+      - name: Commit and push if tools changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git status --porcelain | grep -Eq '^( M|A |\?\?) tools/'; then
+            git add tools/xray tools/hysteria 2>/dev/null || true
+            if git diff --cached --quiet; then
+              echo "No changes to commit"
+            else
+              git commit -m "chore: update tools binaries [automated]"
+              if ! git pull --rebase origin main; then
+                echo "::warning::git pull --rebase failed, skipping push"
+                git rebase --abort || true
+                exit 0
+              fi
+              git push || echo "::warning::git push failed, continuing"
+            fi
+          else
+            echo "tools/ unchanged, skip push"
+          fi
+
+  check-and-publish-sqlite:
+    needs: preflight-update
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      contents: write
+    outputs:
+      stats_workflow_name: ${{ steps.telegram_stats.outputs.workflow_name }}
+      stats_keys_in: ${{ steps.telegram_stats.outputs.keys_in }}
+      stats_keys_out: ${{ steps.telegram_stats.outputs.keys_out }}
+      stats_duration: ${{ steps.telegram_stats.outputs.duration }}
+      stats_cidrlist_line: ${{ steps.telegram_stats.outputs.cidrlist_line }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      XRAY_PATH: ${{ github.workspace }}/tools/xray
+      HYSTERIA_PATH: ${{ github.workspace }}/tools/hysteria
+
+    steps:
+      - name: Record start time
+        id: start
+        run: echo "started_at=$(date -u +%s)" >> $GITHUB_OUTPUT
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: db-ip MMDB cache month (RU geo)
+        if: env.DOCKER_LOCATION_FILTER == 'RU'
+        id: dbip_month
+        run: echo "month=$(date -u +%Y-%m)" >> $GITHUB_OUTPUT
+
+      - name: Restore db-ip country MMDB
+        if: env.DOCKER_LOCATION_FILTER == 'RU'
+        id: mmdb_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: configs/dbip-country-lite.mmdb
+          key: dbip-country-lite-${{ runner.os }}-${{ steps.dbip_month.outputs.month }}
+
+      - name: Fetch db-ip country MMDB if cache miss
+        if: env.DOCKER_LOCATION_FILTER == 'RU' && steps.mmdb_cache.outputs.cache-hit != 'true'
+        run: python tools/fetch_dbip_country_lite_mmdb.py configs/dbip-country-lite.mmdb
+
+      - name: Setup Xray and Hysteria binaries
+        run: bash tools/setup-binaries.sh
+
+      - name: Restore notworkers DB cache
+        uses: actions/cache@v4
+        with:
+          path: configs/notworkers.db
+          key: notworkers-db-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            notworkers-db-${{ github.ref_name }}-
+            notworkers-db-
+
+      - name: Create links.txt from secret
+        run: |
+          if [ -z "$LINKS_FILE_CONTENT" ]; then
+            echo "::error::Secret LINKS_FILE_CONTENT is not set. Add it in Settings - Secrets and variables - Actions."
+            exit 1
+          fi
+          printf '%s' "$LINKS_FILE_CONTENT" > links.txt
+        env:
+          LINKS_FILE_CONTENT: ${{ secrets.LINKS_FILE_CONTENT }}
+
+      - name: Backup existing available and available(top100)
+        run: |
+          mkdir -p configs
+          if [ -f "configs/available" ] && [ -s "configs/available" ]; then
+            cp "configs/available" "configs/available_backup"
+            echo "Backed up configs/available"
+          fi
+          if [ -f "configs/available(top100)" ] && [ -s "configs/available(top100)" ]; then
+            cp "configs/available(top100)" "configs/available_top100_backup"
+            echo "Backed up configs/available(top100)"
+          fi
+
+      - name: Restore geoip JSON cache (MMDB + ip-api fallback)
+        if: env.DOCKER_LOCATION_FILTER == 'RU'
+        uses: actions/cache/restore@v4
+        with:
+          path: configs/geoip_cache.json
+          key: geoip-${{ github.ref_name }}-c-${{ hashFiles('cidrlist') }}-${{ github.run_id }}
+          restore-keys: |
+            geoip-${{ github.ref_name }}-c-${{ hashFiles('cidrlist') }}-
+            geoip-${{ github.ref_name }}-c-
+            geoip-${{ github.ref_name }}-
+            geoip-
+
+      - name: Merge all sources and split into Xray and Hysteria lists (SQLite notworkers)
+        run: |
+          mkdir -p configs
+          python -c "
+          import os
+          import sys
+          import sqlite3
+          sys.path.insert(0, os.getcwd())
+          from lib.parsing import load_merged_keys, normalize_proxy_link
+          from notworkers_sqlite.store import init_db
+
+          def log(msg):
+              print(msg, flush=True)
+
+          links_path = 'links.txt'
+          if not os.path.isfile(links_path):
+              print('links.txt not found')
+              sys.exit(1)
+          _, keys = load_merged_keys(links_path)
+          full_count = len(keys)
+          full_list_normalized = {normalize_proxy_link(link) for link, full in keys}
+          unique_norm_count = len(full_list_normalized)
+
+          log('')
+          log('=== daily-check (SQLite notworkers): сводка по количеству конфигов ===')
+          log(f'[1] links.txt: загружено записей {full_count}, уникальных по нормализованному ключу {unique_norm_count}')
+
+          db_path = os.path.join('configs', 'notworkers.db')
+          if os.path.isfile(db_path):
+              conn = init_db(db_path)
+              try:
+                  cur = conn.execute('SELECT key FROM notworkers')
+                  notworkers_set = {row[0] for row in cur}
+              finally:
+                  conn.close()
+          else:
+              notworkers_set = set()
+
+          n_notworkers = len(notworkers_set)
+          log(f'[2-sqlite] configs/notworkers.db: всего {n_notworkers} записей')
+
+          keys_before_filter = len(keys)
+          if notworkers_set:
+              keys = [(link, full) for link, full in keys if normalize_proxy_link(link) not in notworkers_set]
+          to_check_count = len(keys)
+          excluded_by_notworkers = keys_before_filter - to_check_count
+          log(f'[3-sqlite] Исключено из проверки (ключи в SQLite notworkers): -{excluded_by_notworkers} -> к проверке осталось {to_check_count}')
+
+          prev_available = os.path.join('configs', 'available')
+          added_from_available = 0
+          if os.path.isfile(prev_available) and os.path.getsize(prev_available) > 0:
+              combined_norm = {normalize_proxy_link(link) for link, full in keys}
+              with open(prev_available, 'r', encoding='utf-8') as f:
+                  for line in f:
+                      s = line.rstrip(chr(10)).strip()
+                      if not s or s.startswith('#'):
+                          continue
+                      link = s.split('#', 1)[0].strip() if '#' in s else s.split(maxsplit=1)[0].strip()
+                      norm = normalize_proxy_link(link)
+                      if norm and norm not in combined_norm:
+                          combined_norm.add(norm)
+                          keys.append((link, s))
+                          added_from_available += 1
+          log(f'[4] configs/available (предыдущий запуск): добавлено в список проверки +{added_from_available} -> всего к проверке {len(keys)}')
+
+          if not keys:
+              log('Итого к проверке: 0 -> ключей нет, выход.')
+              for p in ('configs/merged_xray.txt', 'configs/merged_hysteria.txt'):
+                  with open(p, 'w', encoding='utf-8') as f:
+                      pass
+              sys.exit(0)
+          prefixes = ('hysteria://', 'hysteria2://', 'hy2://')
+          xray_lines = []
+          hyst_lines = []
+          for link, full in keys:
+              line = full if full.endswith(chr(10)) else full + chr(10)
+              if link.strip().startswith(prefixes):
+                  hyst_lines.append(line)
+              else:
+                  xray_lines.append(line)
+          with open('configs/merged_xray.txt', 'w', encoding='utf-8') as f:
+              f.writelines(xray_lines)
+          with open('configs/merged_hysteria.txt', 'w', encoding='utf-8') as f:
+              f.writelines(hyst_lines)
+          log(f'[5] Разделение по протоколам: {len(keys)} ключей -> Xray {len(xray_lines)}, Hysteria {len(hyst_lines)}')
+          log('=== конец сводки ===')
+          log('')
+          "
+
+      - name: Filter excluded endpoints
+        env:
+          # Переменная репозитория (Settings → Variables): EXCLUDE_ENDPOINTS - построчно host:port или host (исключить из проверки).
+          EXCLUDE_ENDPOINTS: ${{ vars.EXCLUDE_ENDPOINTS }}
+          EXCLUDE_ENDPOINTS_LOG_DETAILS: "false"
+        run: |
+          if [ -f "configs/merged_xray.txt" ]; then
+            python -m lib.filter_excluded_endpoints configs/merged_xray.txt -o configs/merged_xray_filt.txt && mv configs/merged_xray_filt.txt configs/merged_xray.txt
+          fi
+          if [ -f "configs/merged_hysteria.txt" ]; then
+            python -m lib.filter_excluded_endpoints configs/merged_hysteria.txt -o configs/merged_hysteria_filt.txt && mv configs/merged_hysteria_filt.txt configs/merged_hysteria.txt
+          fi
+
+      - name: Split RU configs at entry (geo only, no cidrlist)
+        if: env.DOCKER_LOCATION_FILTER == 'RU'
+        run: |
+          set -e
+          mkdir -p configs
+          python -c "
+          import os
+          import sys
+          sys.path.insert(0, os.getcwd())
+          from lib.parsing import normalize_proxy_link
+
+          def link_from_line(line):
+              s = line.strip().split(maxsplit=1)[0].strip()
+              return s.split('#', 1)[0].strip() if '#' in s else s
+
+          def read_nonempty_lines(path):
+              if not os.path.isfile(path) or os.path.getsize(path) == 0:
+                  return []
+              with open(path, encoding='utf-8') as f:
+                  return [ln.rstrip('\n') for ln in f if ln.strip() and not ln.strip().startswith('#')]
+
+          def write_lines(path, lines):
+              os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+              with open(path, 'w', encoding='utf-8') as f:
+                  f.write('\n'.join(lines) + ('\n' if lines else ''))
+
+          def split_pool(src_path, ru_out, for_notworkers):
+              lines = read_nonempty_lines(src_path)
+              write_lines(for_notworkers, lines)
+              if not lines:
+                  write_lines(ru_out, [])
+                  write_lines(src_path, [])
+                  return 0, 0
+              import subprocess
+              r = subprocess.run(
+                  [
+                      sys.executable, '-m', 'lib.filter_configs_by_cidr_and_geo', src_path,
+                      '--location', 'RU', '--geo-only',
+                      '--output-geo', ru_out,
+                      '--output-cidr-geo', os.path.join('configs', '.split_ru_cidr_geo.tmp'),
+                      '--geo-cache-file', 'configs/geoip_cache.json',
+                      '--geo-mmdb', 'configs/dbip-country-lite.mmdb',
+                      '--geo-delay', '0.35',
+                      '--geo-requests-per-minute', '42',
+                      '--geo-max-concurrent', '3',
+                      '--geo-workers', '16',
+                  ],
+                  check=False,
+              )
+              if r.returncode != 0:
+                  print('::warning::filter_configs_by_cidr_and_geo failed; keeping all keys in main pool (no RU split)')
+                  write_lines(ru_out, [])
+                  return len(lines), 0
+              ru_lines = read_nonempty_lines(ru_out)
+              ru_norm = {normalize_proxy_link(link_from_line(l)) for l in ru_lines if link_from_line(l)}
+              non_ru = [l for l in lines if normalize_proxy_link(link_from_line(l)) not in ru_norm]
+              write_lines(src_path, non_ru)
+              try:
+                  os.remove(os.path.join('configs', '.split_ru_cidr_geo.tmp'))
+              except OSError:
+                  pass
+              return len(non_ru), len(ru_lines)
+
+          bx, rx = split_pool(
+              'configs/merged_xray.txt',
+              'configs/xray_ru_candidates.txt',
+              'configs/merged_xray_for_notworkers.txt',
+          )
+          bh, rh = split_pool(
+              'configs/merged_hysteria.txt',
+              'configs/hysteria_ru_candidates.txt',
+              'configs/merged_hysteria_for_notworkers.txt',
+          )
+          print(f'RU split: xray main={bx} ru={rx}; hysteria main={bh} ru={rh}')
+          "
+
+      - name: Xray fast screen (phase 1)
+        env:
+          MODE: single
+          CHECKER_DIAG_FAILURE_TYPES: 'true'
+          CHECKER_DIAG_FAILURE_TOP_N: '5'
+          # Отключаем update notworkers (скорость и чтобы фаза 1 не влияла на отбор фазы 2).
+          NOTWORKERS_UPDATE_ENABLED: 'false'
+          # Кандидаты формируем мягче, чтобы не отбрасывать живые ключи слишком рано.
+          STRICT_MODE_REQUIRE_ALL: 'false'
+          TRANSIENT_RETRY_COUNT: '1'
+
+          # Параметры "экран": быстрее/мягче, как в notworkers-actualize.yml
+          STRONG_ATTEMPTS: '1'
+          STRONG_STYLE_TIMEOUT: '3'
+          # Подрезаем минимумы connect/read внутри STRONG_STYLE_TEST, чтобы
+          # плохие ключи быстрее “выдыхались”, но phase 2 оставалась строгой.
+          STRONG_STYLE_CONNECT_T_MIN: '1'
+          STRONG_STYLE_READ_T_MIN: '2'
+          STRONG_MAX_RESPONSE_TIME: '1.5'
+
+          XRAY_STARTUP_WAIT: '1.5'
+          XRAY_PORT_WAIT: '5'
+
+          STABILITY_CHECKS: '1'
+          STABILITY_CHECK_DELAY: '0.5'
+
+          REQUESTS_PER_URL: '2'
+          MIN_SUCCESSFUL_REQUESTS: '2'
+          MIN_SUCCESSFUL_URLS: '1'
+
+          # output file для фазы 1 (кандидаты, затем фаза 2 перезапишет configs/available)
+          OUTPUT_FILE: available_phase1_candidates
+        run: |
+          set -e
+          mkdir -p configs
+          rm -f "configs/available_phase1_candidates" "configs/available_phase1_candidates(top100)" || true
+          if [ -s "configs/merged_xray.txt" ]; then
+            python -m lib.vless_checker configs/merged_xray.txt
+          else
+            echo "No Xray configs to screen"
+            : > "configs/available_phase1_candidates"
+          fi
+
+      - name: Xray full strong (phase 2)
+        env:
+          MODE: single
+          OUTPUT_FILE: available
+        run: |
+          if [ -s "configs/available_phase1_candidates" ]; then
+            python -m lib.vless_checker configs/available_phase1_candidates
+          else
+            echo "No phase1 candidates for full check"
+            : > "configs/available"
+          fi
+
+      - name: RU soft pool (phase 3) → configs/ru, configs/ru(top100)
+        if: env.DOCKER_LOCATION_FILTER == 'RU'
+        env:
+          MODE: single
+          NOTWORKERS_UPDATE_ENABLED: 'false'
+          CHECKER_DIAG_FAILURE_TYPES: 'true'
+          CHECKER_DIAG_FAILURE_TOP_N: '5'
+          # Мягче фазы 1 и общего daily-check: см. doc/NEW_ru-config-ci-error-analysis.md
+          STRICT_MODE_REQUIRE_ALL: 'false'
+          STRICT_MODE: 'true'
+          TRANSIENT_RETRY_COUNT: '2'
+          STRONG_ATTEMPTS: '2'
+          STRONG_STYLE_TIMEOUT: '5'
+          STRONG_STYLE_CONNECT_T_MIN: '1'
+          STRONG_STYLE_READ_T_MIN: '2'
+          STRONG_MAX_RESPONSE_TIME: '3'
+          STRONG_DOUBLE_CHECK: 'false'
+          XRAY_STARTUP_WAIT: '3.5'
+          XRAY_PORT_WAIT: '14'
+          XRAY_CHECKER_MAX_CONCURRENCY: '100'
+          MAX_WORKERS: '120'
+          STABILITY_CHECKS: '1'
+          STABILITY_CHECK_DELAY: '1.0'
+          REQUESTS_PER_URL: '2'
+          MIN_SUCCESSFUL_REQUESTS: '1'
+          MIN_SUCCESSFUL_URLS: '1'
+          CONNECT_TIMEOUT: '8'
+          CONNECT_TIMEOUT_SLOW: '14'
+          MAX_LATENCY_MS: '5500'
+          OUTPUT_FILE: ru
+          OUTPUT_DIR: configs
+          HYSTERIA_STARTUP_WAIT: '6.0'
+          HYSTERIA_PORT_WAIT: '22.0'
+        run: |
+          set -e
+          mkdir -p configs
+          # Сохранить предыдущий ru из репозитория для ретеста вместе с новыми RU-кандидатами (файл может отсутствовать или быть пустым).
+          PREV_RU="configs/.ru_prev_for_phase3"
+          if [ -f "configs/ru" ] && [ -s "configs/ru" ]; then
+            cp "configs/ru" "$PREV_RU"
+            echo "Phase3: saved previous configs/ru ($(wc -l < configs/ru | tr -d ' ') lines) for retest merge"
+          else
+            : > "$PREV_RU"
+            echo "Phase3: no previous configs/ru (missing or empty), merge only new RU candidates"
+          fi
+          # Важно: перед merge прогоняем предыдущий ru через тот же geo-only фильтр,
+          # чтобы не удерживать/возвращать в configs/ru ключи с не-RU endpoint IP.
+          if [ -s "$PREV_RU" ]; then
+            PREV_RU_GEO="configs/.ru_prev_for_phase3.geo"
+            PREV_RU_TMP="configs/.ru_prev_for_phase3.cidr_geo.tmp"
+            set +e
+            FILTER_OUT="$(
+              python -m lib.filter_configs_by_cidr_and_geo "$PREV_RU" \
+                --location RU --geo-only \
+                --output-geo "$PREV_RU_GEO" \
+                --output-cidr-geo "$PREV_RU_TMP" \
+                --geo-cache-file "configs/geoip_cache.json" \
+                --geo-mmdb "configs/dbip-country-lite.mmdb" \
+                --geo-delay "0.35" \
+                --geo-requests-per-minute "42" \
+                --geo-max-concurrent "3" \
+                --geo-workers "16" 2>&1
+            )"
+            RC=$?
+            set -e
+            if [ $RC -eq 0 ]; then
+              mv "$PREV_RU_GEO" "$PREV_RU"
+              rm -f "$PREV_RU_TMP" || true
+              echo "Phase3: filtered prev ru via geo-only (kept $(wc -l < "$PREV_RU" | tr -d ' ') lines)"
+            else
+              echo "::warning::Phase3: geo-only filter for prev ru failed (exit_code=$RC); keeping original prev ru for merge"
+              echo "::group::Phase3 geo-only filter failure details (prev ru)"
+              printf '%s\n' "$FILTER_OUT"
+              echo "::endgroup::"
+              rm -f "$PREV_RU_GEO" "$PREV_RU_TMP" || true
+            fi
+          fi
+          rm -f configs/ru "configs/ru(top100)" configs/.ru_hysteria_part "configs/.ru_hysteria_part(top100)" || true
+          python -c "
+          import os
+          import sys
+          sys.path.insert(0, os.getcwd())
+          from lib.parsing import normalize_proxy_link
+
+          def link_from_line(line):
+              s = line.strip().split(maxsplit=1)[0].strip()
+              return s.split('#', 1)[0].strip() if '#' in s else s
+
+          def read_lines(path):
+              if not os.path.isfile(path) or os.path.getsize(path) == 0:
+                  return []
+              with open(path, encoding='utf-8') as f:
+                  return [ln.rstrip('\n') for ln in f if ln.strip() and not ln.strip().startswith('#')]
+
+          def is_xray_line(line):
+              lk = link_from_line(line)
+              return lk.startswith(('vless://', 'vmess://', 'trojan://', 'ss://'))
+
+          def is_hysteria_line(line):
+              lk = link_from_line(line)
+              return lk.startswith(('hysteria://', 'hysteria2://', 'hy2://'))
+
+          def merge_new_then_prev(new_lines, prev_lines, pred):
+              seen = set()
+              out = []
+              for block in (new_lines, prev_lines):
+                  for line in block:
+                      if not pred(line):
+                          continue
+                      n = normalize_proxy_link(link_from_line(line))
+                      if not n or n in seen:
+                          continue
+                      seen.add(n)
+                      out.append(line)
+              return out
+
+          prev = read_lines('configs/.ru_prev_for_phase3')
+          x_new = read_lines('configs/xray_ru_candidates.txt')
+          h_new = read_lines('configs/hysteria_ru_candidates.txt')
+          x_merged = merge_new_then_prev(x_new, prev, is_xray_line)
+          h_merged = merge_new_then_prev(h_new, prev, is_hysteria_line)
+          os.makedirs('configs', exist_ok=True)
+          for path, lines in (
+              ('configs/.phase3_xray.txt', x_merged),
+              ('configs/.phase3_hysteria.txt', h_merged),
+          ):
+              with open(path, 'w', encoding='utf-8') as f:
+                  f.write('\n'.join(lines) + ('\n' if lines else ''))
+          print(
+              f'Phase3 inputs: xray {len(x_merged)} (new_candidates={len(x_new)}), '
+              f'hysteria {len(h_merged)} (new_candidates={len(h_new)}), prev_ru_lines={len(prev)}'
+          )
+          "
+          if [ -s configs/.phase3_xray.txt ]; then
+            python -m lib.vless_checker configs/.phase3_xray.txt
+          fi
+          if [ -s configs/.phase3_hysteria.txt ]; then
+            HYSTERIA_OUTPUT_FILE=.ru_hysteria_part HYSTERIA_OUTPUT_DIR=configs \
+              python -m lib.hysteria_checker configs/.phase3_hysteria.txt
+            rm -f "configs/.ru_hysteria_part(top100)"
+          fi
+          python -c "
+          import os
+          import sys
+          sys.path.insert(0, os.getcwd())
+          from lib.parsing import normalize_proxy_link
+
+          def link_from_line(line):
+              s = line.strip().split(maxsplit=1)[0].strip()
+              return s.split('#', 1)[0].strip() if '#' in s else s
+
+          def read_lines(path):
+              if not os.path.isfile(path) or os.path.getsize(path) == 0:
+                  return []
+              with open(path, encoding='utf-8') as f:
+                  return [ln.rstrip('\n') for ln in f if ln.strip() and not ln.strip().startswith('#')]
+
+          def norms_in_file(path):
+              ns = set()
+              for line in read_lines(path):
+                  lk = link_from_line(line)
+                  n = normalize_proxy_link(lk) if lk else ''
+                  if n:
+                      ns.add(n)
+              return ns
+
+          parts = []
+          for p in ('configs/ru', 'configs/.ru_hysteria_part'):
+              parts.extend(read_lines(p))
+          seen_norm = set()
+          merged = []
+          for line in parts:
+              n = normalize_proxy_link(link_from_line(line))
+              if n and n not in seen_norm:
+                  seen_norm.add(n)
+                  merged.append(line)
+
+          out = 'configs/ru'
+          out_top = 'configs/ru(top100)'
+          os.makedirs('configs', exist_ok=True)
+          with open(out, 'w', encoding='utf-8') as f:
+              f.write('\n'.join(merged) + ('\n' if merged else ''))
+          top_lines = merged[:100]
+          with open(out_top, 'w', encoding='utf-8') as f:
+              f.write('\n'.join(top_lines) + ('\n' if top_lines else ''))
+          for p in ('configs/.ru_hysteria_part', 'configs/.phase3_xray.txt', 'configs/.phase3_hysteria.txt', 'configs/.ru_prev_for_phase3'):
+              try:
+                  os.remove(p)
+              except OSError:
+                  pass
+          print(
+              f'configs/ru: {len(merged)} lines (passed current soft RU check only); '
+              f'ru(top100): {len(top_lines)} lines'
+          )
+          "
+
+      - name: Run speedtest on Xray configs
+        if: env.SPEED_TEST_ENABLED == 'true'
+        run: |
+          if [ -f "configs/available" ] && [ -s "configs/available" ]; then
+            python -m lib.speedtest_checker configs/available
+          else
+            echo "No Xray configs for speedtest"
+          fi
+        env:
+          MAX_WORKERS: ${{ env.MAX_WORKERS }}
+          BASE_PORT: ${{ env.BASE_PORT }}
+          XRAY_STARTUP_WAIT: ${{ env.XRAY_STARTUP_WAIT }}
+          XRAY_STARTUP_POLL_INTERVAL: ${{ env.XRAY_STARTUP_POLL_INTERVAL }}
+          XRAY_PORT_WAIT: ${{ env.XRAY_PORT_WAIT }}
+          VERIFY_HTTPS_SSL: ${{ env.VERIFY_HTTPS_SSL }}
+          SPEED_TEST_ENABLED: ${{ env.SPEED_TEST_ENABLED }}
+          SPEED_TEST_TIMEOUT: ${{ env.SPEED_TEST_TIMEOUT }}
+          SPEED_TEST_MODE: ${{ env.SPEED_TEST_MODE }}
+          SPEED_TEST_METRIC: ${{ env.SPEED_TEST_METRIC }}
+          SPEED_TEST_OUTPUT: ${{ env.SPEED_TEST_OUTPUT }}
+          SPEED_TEST_REQUESTS: ${{ env.SPEED_TEST_REQUESTS }}
+          SPEED_TEST_MIN_SUCCESS_RATIO: ${{ env.SPEED_TEST_MIN_SUCCESS_RATIO }}
+          SPEED_TEST_MIN_SUCCESS_COUNT: ${{ env.SPEED_TEST_MIN_SUCCESS_COUNT }}
+          SPEED_TEST_URL: ${{ env.SPEED_TEST_URL }}
+          SPEED_TEST_WORKERS: ${{ env.SPEED_TEST_WORKERS }}
+          SPEED_TEST_DOWNLOAD_TIMEOUT: ${{ env.SPEED_TEST_DOWNLOAD_TIMEOUT }}
+          SPEED_TEST_DOWNLOAD_URL_SMALL: ${{ env.SPEED_TEST_DOWNLOAD_URL_SMALL }}
+          SPEED_TEST_DOWNLOAD_URL_MEDIUM: ${{ env.SPEED_TEST_DOWNLOAD_URL_MEDIUM }}
+          MIN_SPEED_THRESHOLD_MBPS: ${{ env.MIN_SPEED_THRESHOLD_MBPS }}
+          SPEED_TEST_DEBUG: ${{ env.SPEED_TEST_DEBUG }}
+          OUTPUT_DIR: configs
+
+      - name: Add Xray URL-test failures to SQLite notworkers
+        run: |
+          python -c "
+          import os
+          import sys
+          sys.path.insert(0, os.getcwd())
+          from lib.parsing import normalize_proxy_link
+          from notworkers_sqlite.store import init_db, upsert_notworker
+
+          def read_lines_with_full(path):
+              if not os.path.isfile(path) or os.path.getsize(path) == 0:
+                  return []
+              with open(path, encoding='utf-8') as f:
+                  return [line.rstrip(chr(10)) for line in f if line.strip() and not line.strip().startswith('#')]
+
+          def link_from_line(line):
+              s = line.strip().split(maxsplit=1)[0].strip()
+              return s.split('#', 1)[0].strip() if '#' in s else s
+
+          merged_path = (
+              'configs/merged_xray_for_notworkers.txt'
+              if os.path.isfile('configs/merged_xray_for_notworkers.txt')
+              else 'configs/merged_xray.txt'
+          )
+          xray_passed_path = 'configs/available'
+          db_path = os.path.join('configs', 'notworkers.db')
+
+          merged_lines = read_lines_with_full(merged_path)
+          if not merged_lines:
+              print('No Xray keys to merge into SQLite notworkers')
+              sys.exit(0)
+
+          passed_lines = read_lines_with_full(xray_passed_path)
+          ru_path = os.path.join('configs', 'ru')
+          if os.path.isfile(ru_path) and os.path.getsize(ru_path) > 0:
+              for line in read_lines_with_full(ru_path):
+                  lk = link_from_line(line)
+                  if lk.startswith(('vless://', 'vmess://', 'trojan://', 'ss://')):
+                      passed_lines.append(line)
+          passed_norm = {normalize_proxy_link(link_from_line(l)) for l in passed_lines if link_from_line(l)}
+
+          failed_normalized_to_full = {}
+          for line in merged_lines:
+              link = link_from_line(line)
+              norm = normalize_proxy_link(link)
+              if not norm:
+                  continue
+              if norm in passed_norm:
+                  continue
+              full = line if line else link
+              failed_normalized_to_full[norm] = full
+
+          if not failed_normalized_to_full:
+              print('No Xray URL-test failures to add to SQLite notworkers')
+              sys.exit(0)
+
+          conn = init_db(db_path)
+          try:
+              total_before = conn.execute('SELECT COUNT(*) FROM notworkers').fetchone()[0]
+              print(f'SQLite notworkers (Xray URL step): total_before={total_before}, '
+                    f'merged_lines={len(merged_lines)}, passed_ok={len(passed_norm)}, '
+                    f'failed_to_add={len(failed_normalized_to_full)}')
+              # сначала убираем успешно прошедшие Xray из notworkers
+              for norm in passed_norm:
+                  if not norm:
+                      continue
+                  conn.execute('DELETE FROM notworkers WHERE key = ?', (norm,))
+
+              inserted = 0
+              updated = 0
+              for norm, full in failed_normalized_to_full.items():
+                  cur = conn.execute('SELECT 1 FROM notworkers WHERE key = ? LIMIT 1', (norm,))
+                  exists = cur.fetchone() is not None
+                  upsert_notworker(conn, norm, full, source='daily-check:xray-url-fail')
+                  if exists:
+                      updated += 1
+                  else:
+                      inserted += 1
+              conn.commit()
+              total_after = conn.execute('SELECT COUNT(*) FROM notworkers').fetchone()[0]
+              print(
+                  f'SQLite notworkers (Xray URL step): '
+                  f'added {inserted} new / updated {updated}; '
+                  f'total_before={total_before} -> total_after={total_after}'
+              )
+          finally:
+              conn.close()
+          "
+
+      - name: Run hysteria_checker on Hysteria configs
+        run: |
+          if [ -f "configs/merged_hysteria.txt" ] && [ -s "configs/merged_hysteria.txt" ]; then
+            python -m lib.hysteria_checker configs/merged_hysteria.txt
+          else
+            echo "No Hysteria configs to check"
+          fi
+
+      - name: Add Hysteria URL-test failures to SQLite notworkers
+        run: |
+          python -c "
+          import os
+          import sys
+          sys.path.insert(0, os.getcwd())
+          from lib.parsing import normalize_proxy_link
+          from notworkers_sqlite.store import init_db, upsert_notworker
+
+          def read_lines_with_full(path):
+              if not os.path.isfile(path) or os.path.getsize(path) == 0:
+                  return []
+              with open(path, encoding='utf-8') as f:
+                  return [line.rstrip(chr(10)) for line in f if line.strip() and not line.strip().startswith('#')]
+
+          def link_from_line(line):
+              s = line.strip().split(maxsplit=1)[0].strip()
+              return s.split('#', 1)[0].strip() if '#' in s else s
+
+          merged_path = (
+              'configs/merged_hysteria_for_notworkers.txt'
+              if os.path.isfile('configs/merged_hysteria_for_notworkers.txt')
+              else 'configs/merged_hysteria.txt'
+          )
+          hysteria_passed_path = 'configs/hysteria'
+          db_path = os.path.join('configs', 'notworkers.db')
+
+          merged_lines = read_lines_with_full(merged_path)
+          if not merged_lines:
+              print('No Hysteria keys to merge into SQLite notworkers')
+              sys.exit(0)
+
+          passed_lines = read_lines_with_full(hysteria_passed_path)
+          ru_path = os.path.join('configs', 'ru')
+          if os.path.isfile(ru_path) and os.path.getsize(ru_path) > 0:
+              for line in read_lines_with_full(ru_path):
+                  lk = link_from_line(line)
+                  if lk.startswith(('hysteria://', 'hysteria2://', 'hy2://')):
+                      passed_lines.append(line)
+          passed_norm = {normalize_proxy_link(link_from_line(l)) for l in passed_lines if link_from_line(l)}
+
+          failed_normalized_to_full = {}
+          for line in merged_lines:
+              link = link_from_line(line)
+              norm = normalize_proxy_link(link)
+              if not norm:
+                  continue
+              if norm in passed_norm:
+                  continue
+              full = line if line else link
+              failed_normalized_to_full[norm] = full
+
+          if not failed_normalized_to_full:
+              print('No Hysteria URL-test failures to add to SQLite notworkers')
+              sys.exit(0)
+
+          conn = init_db(db_path)
+          try:
+              total_before = conn.execute('SELECT COUNT(*) FROM notworkers').fetchone()[0]
+              print(f'SQLite notworkers (Hysteria URL step): total_before={total_before}, '
+                    f'merged_lines={len(merged_lines)}, passed_ok={len(passed_norm)}, '
+                    f'failed_to_add={len(failed_normalized_to_full)}')
+              # сначала убираем успешно прошедшие из notworkers
+              for norm in passed_norm:
+                  if not norm:
+                      continue
+                  conn.execute('DELETE FROM notworkers WHERE key = ?', (norm,))
+
+              inserted = 0
+              updated = 0
+              for norm, full in failed_normalized_to_full.items():
+                  cur = conn.execute('SELECT 1 FROM notworkers WHERE key = ? LIMIT 1', (norm,))
+                  exists = cur.fetchone() is not None
+                  upsert_notworker(conn, norm, full, source='daily-check:hysteria-url-fail')
+                  if exists:
+                      updated += 1
+                  else:
+                      inserted += 1
+              conn.commit()
+              total_after = conn.execute('SELECT COUNT(*) FROM notworkers').fetchone()[0]
+              print(
+                  f'SQLite notworkers (Hysteria URL step): '
+                  f'added {inserted} new / updated {updated}; '
+                  f'total_before={total_before} -> total_after={total_after}'
+              )
+          finally:
+              conn.close()
+          "
+
+      - name: Run Hysteria speedtest
+        if: env.SPEED_TEST_ENABLED == 'true'
+        run: |
+          if [ -f "configs/hysteria" ] && [ -s "configs/hysteria" ]; then
+            python -m lib.speedtest_hysteria configs/hysteria
+          else
+            echo "No Hysteria configs for speedtest"
+          fi
+
+      - name: Merge Xray and Hysteria results into configs/available
+        run: |
+          mkdir -p configs
+          if [ -f "configs/available_st" ] && [ -s "configs/available_st" ]; then
+            cp "configs/available_st" "configs/available_xray_part"
+          elif [ -f "configs/available" ] && [ -s "configs/available" ]; then
+            cp "configs/available" "configs/available_xray_part"
+          else
+            : > "configs/available_xray_part"
+          fi
+          > "configs/available"
+          cat "configs/available_xray_part" >> "configs/available"
+          if [ -f "configs/hysteria_st" ] && [ -s "configs/hysteria_st" ]; then
+            cat "configs/hysteria_st" >> "configs/available"
+          elif [ -f "configs/hysteria" ] && [ -s "configs/hysteria" ]; then
+            cat "configs/hysteria" >> "configs/available"
+          fi
+          if [ -s "configs/available" ]; then
+            head -n 100 "configs/available" > "configs/available(top100)"
+          else
+            echo "No configs available after merging Xray and Hysteria results"
+          fi
+
+      - name: Merge checker results with existing available (dedupe, supplement)
+        run: |
+          python -c "
+          import os
+          import sys
+          sys.path.insert(0, os.getcwd())
+          from lib.parsing import normalize_proxy_link
+
+          def read_lines(path):
+              if not os.path.isfile(path) or os.path.getsize(path) == 0:
+                  return []
+              with open(path, encoding='utf-8') as f:
+                  return [line.rstrip(chr(10)) for line in f if line.strip() and not line.strip().startswith('#')]
+
+          def link_from_line(line):
+              s = line.strip().split(maxsplit=1)[0].strip()
+              return s.split('#', 1)[0].strip() if '#' in s else s
+
+          configs = 'configs'
+          backup = os.path.join(configs, 'available_backup')
+          backup_top = os.path.join(configs, 'available_top100_backup')
+          checker_out = os.path.join(configs, 'available')
+          out_path = os.path.join(configs, 'available')
+          out_top = os.path.join(configs, 'available(top100)')
+
+          new_lines = read_lines(checker_out)
+          new_top_lines = read_lines(out_top) if os.path.isfile(out_top) and os.path.getsize(out_top) > 0 else new_lines[:100]
+
+          existing_lines = read_lines(backup)
+          existing_top = read_lines(backup_top)
+
+          seen = set()
+          merged = []
+          for line in existing_lines:
+              link = link_from_line(line)
+              if not link:
+                  continue
+              norm = normalize_proxy_link(link)
+              if norm and norm not in seen:
+                  seen.add(norm)
+                  merged.append(line)
+          for line in new_lines:
+              link = link_from_line(line)
+              if not link:
+                  continue
+              norm = normalize_proxy_link(link)
+              if norm and norm not in seen:
+                  seen.add(norm)
+                  merged.append(line)
+
+          os.makedirs(configs, exist_ok=True)
+          merged_text = chr(10).join(merged)
+          with open(out_path, 'w', encoding='utf-8') as f:
+              f.write(merged_text + (chr(10) if merged else ''))
+          print(f'Merged available: existing + this run -> {len(merged)} total, deduped by key')
+
+          top_seen = set()
+          top100 = []
+          for line in new_top_lines:
+              if len(top100) >= 100:
+                  break
+              link = link_from_line(line)
+              if not link:
+                  continue
+              norm = normalize_proxy_link(link)
+              if norm and norm not in top_seen:
+                  top_seen.add(norm)
+                  top100.append(line)
+          for line in existing_top:
+              if len(top100) >= 100:
+                  break
+              link = link_from_line(line)
+              if not link:
+                  continue
+              norm = normalize_proxy_link(link)
+              if norm and norm not in top_seen:
+                  top_seen.add(norm)
+                  top100.append(line)
+
+          top100_text = chr(10).join(top100)
+          with open(out_top, 'w', encoding='utf-8') as f:
+              f.write(top100_text + (chr(10) if top100 else ''))
+          print(f'available(top100): {len(top100)} keys')
+          "
+
+      - name: Normalize comments (strip + add flag and AUTO_COMMENT)
+        if: env.AUTO_COMMENT != ''
+        run: |
+          set -e
+          if [ -s "configs/available" ]; then
+            python -m lib.strip_vpn_comments configs/available -o configs/available
+            head -n 100 "configs/available" > "configs/available(top100)"
+            echo "Normalized comments in configs/available and configs/available(top100)"
+          fi
+          if [ -s "configs/ru" ]; then
+            python -m lib.strip_vpn_comments configs/ru -o configs/ru
+            head -n 100 "configs/ru" > "configs/ru(top100)"
+            echo "Normalized comments in configs/ru and configs/ru(top100)"
+          fi
+        env:
+          AUTO_COMMENT: ${{ env.AUTO_COMMENT }}
+
+      - name: Prune SQLite notworkers DB (TTL + max rows)
+        run: |
+          if [ -f "configs/notworkers.db" ]; then
+            python -m notworkers_sqlite.cli prune --db configs/notworkers.db --days 4 --max-rows 720000
+          else
+            echo "configs/notworkers.db not found, skip prune"
+          fi
+
+      - name: Commit and push configs/available, configs/available(top100), configs/ru, configs/ru(top100)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          mkdir -p configs
+          python tools/encode_configs_base64.py \
+            configs/available \
+            "configs/available(top100)" \
+            configs/ru \
+            "configs/ru(top100)"
+          for f in configs/available "configs/available(top100)" configs/ru "configs/ru(top100)"; do
+            [ -f "$f" ] && git add "configs/base64/$(basename "$f")"
+          done
+          if [ -f "configs/available" ]; then git add configs/available; fi
+          if [ -f "configs/available(top100)" ]; then git add "configs/available(top100)"; fi
+          if [ -f "configs/ru" ]; then git add configs/ru; fi
+          if [ -f "configs/ru(top100)" ]; then git add "configs/ru(top100)"; fi
+          if ! git diff --cached --quiet; then
+            NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            C=$(wc -l < "configs/available" 2>/dev/null || echo "0")
+            C100=$(wc -l < "configs/available(top100)" 2>/dev/null || echo "0")
+            CRU=$(wc -l < "configs/ru" 2>/dev/null || echo "0")
+            CRU100=$(wc -l < "configs/ru(top100)" 2>/dev/null || echo "0")
+            OLD=$(cat configs/last-updated.json 2>/dev/null || echo '{}')
+            echo "$OLD" | jq -c --arg t "$NOW" --argjson c "$C" --argjson c100 "$C100" --argjson cru "$CRU" --argjson cru100 "$CRU100" '.["configs/available"] = {updated: $t, count: $c} | .["configs/available(top100)"] = {updated: $t, count: $c100} | .["configs/ru"] = {updated: $t, count: $cru} | .["configs/ru(top100)"] = {updated: $t, count: $cru100}' > configs/last-updated.json
+            git add configs/last-updated.json
+          fi
+          if ! git diff --cached --quiet; then
+            git commit -m "update available [check + speedtest, automated]"
+            git stash -u
+            git pull --rebase origin "${{ github.ref_name }}" || REBASE_FAILED=1
+            if [ -n "${REBASE_FAILED:-}" ]; then
+              if git diff --name-only --diff-filter=U | grep -q "configs/last-updated.json"; then
+                git checkout --theirs configs/last-updated.json
+                git add configs/last-updated.json
+                GIT_EDITOR=true git rebase --continue
+              fi
+              if [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then
+                echo "::error::Rebase had conflicts that could not be auto-resolved"
+                git rebase --abort
+                exit 1
+              fi
+            fi
+            git stash pop || true
+            git status
+            if git log origin/"${{ github.ref_name }}"..HEAD -1 --oneline >/dev/null 2>&1; then
+              git push
+            fi
+          else
+            echo "configs/available and top100 unchanged, skip push"
+          fi
+
+      - name: Prepare Telegram stats
+        id: telegram_stats
+        run: |
+          K_IN=0
+          [ -f configs/merged_xray.txt ] && K_IN=$((K_IN + $(wc -l < configs/merged_xray.txt)))
+          [ -f configs/merged_hysteria.txt ] && K_IN=$((K_IN + $(wc -l < configs/merged_hysteria.txt)))
+          K_OUT=$(wc -l < configs/available 2>/dev/null || echo 0)
+          END=$(date -u +%s)
+          START=${{ steps.start.outputs.started_at }}
+          DURATION_SEC=$(( END - START ))
+          printf -v DURATION "%d:%02d" $(( DURATION_SEC / 60 )) $(( DURATION_SEC % 60 ))
+          echo "workflow_name=Daily check" >> $GITHUB_OUTPUT
+          echo "keys_in=$K_IN" >> $GITHUB_OUTPUT
+          echo "keys_out=$K_OUT" >> $GITHUB_OUTPUT
+          echo "duration=$DURATION" >> $GITHUB_OUTPUT
+          CIDRLIST_LINE=""
+          if [ "${{ needs.preflight-update.outputs.cidrlist_updated }}" = "true" ]; then
+            B="${{ needs.preflight-update.outputs.cidrlist_lines_before }}"
+            A="${{ needs.preflight-update.outputs.cidrlist_lines_after }}"
+            CIDRLIST_LINE="строк ${B} → ${A}"
+          fi
+          echo "cidrlist_line=$CIDRLIST_LINE" >> $GITHUB_OUTPUT
+
+      - name: Save db-ip country MMDB
+        if: success() && env.DOCKER_LOCATION_FILTER == 'RU' && steps.mmdb_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: configs/dbip-country-lite.mmdb
+          key: dbip-country-lite-${{ runner.os }}-${{ steps.dbip_month.outputs.month }}
+
+      - name: Save geoip JSON cache
+        if: always() && env.DOCKER_LOCATION_FILTER == 'RU'
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: configs/geoip_cache.json
+          key: geoip-${{ github.ref_name }}-c-${{ hashFiles('cidrlist') }}-${{ github.run_id }}
+
+  notify-telegram:
+    needs: check-and-publish-sqlite
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Send workflow stats to Telegram
+        uses: ./.github/actions/telegram-workflow-stats
+        with:
+          workflow_name: ${{ needs.check-and-publish-sqlite.outputs.stats_workflow_name }}
+          keys_in: ${{ needs.check-and-publish-sqlite.outputs.stats_keys_in }}
+          keys_out: ${{ needs.check-and-publish-sqlite.outputs.stats_keys_out }}
+          duration: ${{ needs.check-and-publish-sqlite.outputs.stats_duration }}
+          cidrlist_line: ${{ needs.check-and-publish-sqlite.outputs.stats_cidrlist_line }}
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          extra_section: |
+            Обновлённые подписки:
+
+            [Full Available List](https://whiteprime.github.io/xraycheck/configs/available)
+            [Available List (top100)](https://whiteprime.github.io/xraycheck/configs/available%28top100%29)
+            [RU](https://whiteprime.github.io/xraycheck/configs/ru)
+            [RU(top100)](https://whiteprime.github.io/xraycheck/configs/ru%28top100%29)
+

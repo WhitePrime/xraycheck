@@ -1,0 +1,497 @@
+name: MTProto check
+
+on:
+  workflow_run:
+    workflows: ["Speedtest"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    # Ручной запуск из вкладки Actions (параметры берём из env, как в daily-check.yml)
+
+env:
+  MODE: merge
+  OUTPUT_DIR: configs
+  MAX_WORKERS: 900
+  CONNECT_TIMEOUT: 3
+  # Период (в часах), за который парсим прокси из Telegram-каналов (TG_CHANNEL)
+  TG_CHANNEL_HOURS: 72
+  MTPROTO_CHANNEL_TAG: "@xraycheck"
+  MTPROTO_ATTEMPTS: 3
+  MTPROTO_MIN_SUCCESS_RATE: 0.8
+  MTPROTO_JITTER_SCALE_MS: 200
+  MTPROTO_TOP_N: 100
+  MTPROTO_MAX_CANDIDATES: 0
+  MTPROTO_STRICT: 'true'
+
+jobs:
+  mtproto-check:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    outputs:
+      stats_workflow_name: ${{ steps.telegram_stats.outputs.workflow_name }}
+      stats_keys_in: ${{ steps.telegram_stats.outputs.keys_in }}
+      stats_keys_out: ${{ steps.telegram_stats.outputs.keys_out }}
+      stats_duration: ${{ steps.telegram_stats.outputs.duration }}
+
+    steps:
+      - name: Record start time
+        id: start
+        run: echo "started_at=$(date -u +%s)" >> $GITHUB_OUTPUT
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Load previous successful MTProto list (configs/mtproto)
+        run: |
+          # Сохраняем прошлый успешный результат ДО удаления в шаге проверки
+          if [ -s "configs/mtproto" ]; then
+            cp "configs/mtproto" mtproto_prev.txt
+            echo "Previous MTProto lines: $(wc -l < mtproto_prev.txt | tr -d ' ')"
+          else
+            : > mtproto_prev.txt
+            echo "::warning::configs/mtproto missing or empty; no previous MTProto to re-check"
+          fi
+
+      - name: Prepare merged MTProto list from secret
+        env:
+          MTPROTOFILE_CONTENT: ${{ secrets.MTPROTOFILE_CONTENT }}
+        run: |
+          : > mtproto_merged.txt
+          if [ -z "$MTPROTOFILE_CONTENT" ]; then
+            echo "::warning::Secret MTPROTOFILE_CONTENT is not set or empty. Skipping URL sources."
+            exit 0
+          fi
+
+          echo "Creating mtproto_links.txt from MTPROTOFILE_CONTENT..."
+          printf '%s\n' "$MTPROTOFILE_CONTENT" > mtproto_links.txt
+
+          echo "Downloading and merging MTProto lists..."
+          while IFS= read -r url; do
+            url_trimmed=$(echo "$url" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            if [ -z "$url_trimmed" ]; then
+              continue
+            fi
+            echo "Fetching $url_trimmed"
+            curl -fsSL "$url_trimmed" >> mtproto_merged.txt || echo "Warning: failed to fetch $url_trimmed" >&2
+            echo >> mtproto_merged.txt
+          done < mtproto_links.txt
+
+          if [ ! -s mtproto_merged.txt ]; then
+            echo "::warning::No MTProto data downloaded from URL sources (mtproto_merged.txt empty)."
+          fi
+
+      - name: Parse MTProto from Telegram channels (TG_CHANNEL)
+        env:
+          TG_CHANNEL: ${{ secrets.TG_CHANNEL }}
+          TG_CHANNEL_HOURS: ${{ env.TG_CHANNEL_HOURS }}
+        run: |
+          mkdir -p configs
+          if [ -z "$TG_CHANNEL" ]; then
+            echo "::warning::Secret TG_CHANNEL is not set or empty. Skipping Telegram channels parsing."
+            : > mtproto_from_channels.txt
+            exit 0
+          fi
+          echo "Parsing MTProto from TG channels for last ${TG_CHANNEL_HOURS}h..."
+          python -m lib.mtproto_from_channels --hours "${TG_CHANNEL_HOURS}" --output mtproto_from_channels.txt
+
+      - name: Merge MTProto sources (URLs + Telegram channels)
+        run: |
+          : > mtproto_all.txt
+          # Сначала добавляем уже проверенные ранее рабочие прокси, чтобы они не терялись
+          if [ -s mtproto_prev.txt ]; then
+            cat mtproto_prev.txt >> mtproto_all.txt
+            echo >> mtproto_all.txt
+          fi
+          if [ -s mtproto_merged.txt ]; then
+            cat mtproto_merged.txt >> mtproto_all.txt
+            echo >> mtproto_all.txt
+          fi
+          if [ -s mtproto_from_channels.txt ]; then
+            cat mtproto_from_channels.txt >> mtproto_all.txt
+            echo >> mtproto_all.txt
+          fi
+          if [ ! -s mtproto_all.txt ]; then
+            echo "::error::No MTProto data collected from any source (URLs + TG channels)."
+            exit 1
+          fi
+
+          # Дедупликация/нормализация строк (убираем пустые, CRLF, пробелы)
+          python - << 'PY'
+          from __future__ import annotations
+
+          from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
+          src = "mtproto_all.txt"
+          with open(src, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.read().splitlines()
+
+          def canonical_key(raw: str) -> str:
+            s = raw.strip().replace("\r", "")
+            if not s or s.startswith("#"):
+              return s
+            try:
+              p = urlparse(s)
+            except Exception:
+              return s
+
+            scheme = (p.scheme or "").lower()
+            netloc = p.netloc or ""
+            path = p.path or ""
+
+            # Канонизируем MTProto и Telegram SOCKS URL; остальное - как есть
+            is_tg_proxy = scheme == "tg" and netloc == "proxy"
+            is_tg_socks = scheme == "tg" and netloc == "socks"
+            pnorm = (path or "").rstrip("/")
+            is_tm_proxy = scheme in ("http", "https") and (netloc or "").lower() in ("t.me", "telegram.me") and pnorm == "/proxy"
+            is_tm_socks = scheme in ("http", "https") and (netloc or "").lower() in ("t.me", "telegram.me") and pnorm == "/socks"
+            if not (is_tg_proxy or is_tm_proxy or is_tg_socks or is_tm_socks):
+              return s
+
+            qs = [(k, v) for (k, v) in parse_qsl(p.query or "", keep_blank_values=True) if k.lower() != "channel"]
+            qs.sort(key=lambda kv: (kv[0].lower(), kv[1]))
+            query = urlencode(qs, doseq=True)
+
+            if is_tm_proxy or is_tm_socks:
+              netloc = netloc.lower()
+              path = "/proxy" if is_tm_proxy else "/socks"
+
+            return urlunparse((scheme, netloc, path, "", query, ""))
+
+          seen = set()
+          out = []
+          for raw in lines:
+            s = raw.strip().replace("\r", "")
+            if not s:
+              continue
+            # Комментарии сохраняем как есть (не влияют на дедуп по URL)
+            if s.startswith("#"):
+              out.append(s)
+              continue
+            key = canonical_key(s)
+            if key in seen:
+              continue
+            seen.add(key)
+            out.append(s)
+
+          with open(src, "w", encoding="utf-8") as f:
+            f.write("\n".join(out) + ("\n" if out else ""))
+
+          print(f"MTProto input lines (deduped): {len([x for x in out if x and not x.startswith('#')])}")
+          PY
+          echo "MTProto input lines (combined): $(wc -l < mtproto_all.txt | tr -d ' ')"
+
+      - name: Split combined list into MTProto vs Telegram SOCKS
+        run: |
+          python - << 'PY'
+          from __future__ import annotations
+
+          from pathlib import Path
+
+          from lib.mtproto_checker import _parse_mtproto
+          from lib.tg_socks_checker import _parse_tg_socks
+
+          src = Path("mtproto_all.txt")
+          lines = src.read_text(encoding="utf-8", errors="replace").splitlines()
+          mt: list[str] = []
+          sk: list[str] = []
+          for raw in lines:
+              s = raw.strip()
+              if not s or s.startswith("#"):
+                  continue
+              if _parse_tg_socks(s):
+                  sk.append(s)
+              elif _parse_mtproto(s, strict=True, allow_incomplete=False):
+                  mt.append(s)
+
+          non_comment = [l.strip() for l in lines if l.strip() and not l.strip().startswith("#")]
+          if non_comment and not mt and not sk:
+              print("::error::Во входе есть строки, но ни одна не распознана как MTProto или t.me/socks")
+              raise SystemExit(1)
+
+          Path("mtproto_for_check.txt").write_text("\n".join(mt) + ("\n" if mt else ""), encoding="utf-8")
+          Path("tg_socks_for_check.txt").write_text("\n".join(sk) + ("\n" if sk else ""), encoding="utf-8")
+          print(f"Split: MTProto lines={len(mt)}, Telegram SOCKS lines={len(sk)}")
+          PY
+
+      - name: Run MTProto checker
+        env:
+          MODE: merge
+          MTPROTO_OUTPUT_BASENAME: _st_mtproto
+          # Не тегируем канал здесь: иначе наследуется job env и тег дублируется после merge.
+          MTPROTO_CHANNEL_TAG: ""
+          TG_SOCKS_CHANNEL_TAG: ""
+        run: |
+          mkdir -p configs
+          echo "MTProto params: event=${{ github.event_name }} workers=${MAX_WORKERS} timeout=${CONNECT_TIMEOUT} attempts=${MTPROTO_ATTEMPTS} min_success_rate=${MTPROTO_MIN_SUCCESS_RATE} jitter_scale_ms=${MTPROTO_JITTER_SCALE_MS} top_n=${MTPROTO_TOP_N} max_candidates=${MTPROTO_MAX_CANDIDATES} strict=${MTPROTO_STRICT}"
+          STRICT_FLAG="--no-strict"
+          if [ "${MTPROTO_STRICT}" = "true" ]; then
+            STRICT_FLAG="--strict"
+          fi
+          rm -f configs/_st_mtproto "configs/_st_mtproto(top100)"
+          if [ -s mtproto_for_check.txt ]; then
+            python -m lib.mtproto_checker mtproto_for_check.txt \
+              --workers "${MAX_WORKERS}" \
+              --timeout "${CONNECT_TIMEOUT}" \
+              --attempts "${MTPROTO_ATTEMPTS}" \
+              --min-success-rate "${MTPROTO_MIN_SUCCESS_RATE}" \
+              --jitter-scale-ms "${MTPROTO_JITTER_SCALE_MS}" \
+              --top-n "${MTPROTO_TOP_N}" \
+              --max-candidates "${MTPROTO_MAX_CANDIDATES}" \
+              ${STRICT_FLAG}
+          else
+            echo "::notice::Нет строк MTProto во входе - пропуск mtproto_checker"
+          fi
+
+      - name: Run Telegram SOCKS checker (t.me/socks)
+        env:
+          MODE: merge
+          TG_SOCKS_OUTPUT_BASENAME: _st_tg_socks
+          MTPROTO_CHANNEL_TAG: ""
+          TG_SOCKS_CHANNEL_TAG: ""
+        run: |
+          mkdir -p configs
+          echo "Telegram SOCKS: workers=${MAX_WORKERS} timeout=${CONNECT_TIMEOUT} attempts=${MTPROTO_ATTEMPTS} top_n=${MTPROTO_TOP_N}"
+          rm -f configs/_st_tg_socks "configs/_st_tg_socks(top100)"
+          if [ -s tg_socks_for_check.txt ]; then
+            python -m lib.tg_socks_checker tg_socks_for_check.txt \
+              --workers "${MAX_WORKERS}" \
+              --timeout "${CONNECT_TIMEOUT}" \
+              --attempts "${MTPROTO_ATTEMPTS}" \
+              --min-success-rate "${MTPROTO_MIN_SUCCESS_RATE}" \
+              --jitter-scale-ms "${MTPROTO_JITTER_SCALE_MS}" \
+              --top-n "${MTPROTO_TOP_N}" \
+              --max-candidates "${MTPROTO_MAX_CANDIDATES}"
+          else
+            echo "::notice::Нет строк t.me/socks во входе - пропуск tg_socks_checker"
+          fi
+
+      - name: Merge MTProto and SOCKS into configs/mtproto
+        run: |
+          python -m lib.telegram_proxy_merge --top-n "${{ env.MTPROTO_TOP_N }}"
+          rm -f configs/_st_mtproto "configs/_st_mtproto(top100)" configs/_st_tg_socks "configs/_st_tg_socks(top100)"
+          rm -f configs/tg_socks "configs/tg_socks(top100)"
+
+      - name: Add channel tag (MTProto + SOCKS) to configs/mtproto
+        env:
+          MTPROTO_CHANNEL_TAG: ${{ env.MTPROTO_CHANNEL_TAG }}
+        run: |
+          if [ -z "$MTPROTO_CHANNEL_TAG" ]; then
+            echo "::warning::MTPROTO_CHANNEL_TAG is empty, skip channel tagging."
+            exit 0
+          fi
+          python - << 'PY'
+          import os
+          import sys
+          from pathlib import Path
+
+          from lib.telegram_proxy_merge import rewrite_file_channel_tags
+
+          channel = os.environ.get("MTPROTO_CHANNEL_TAG", "").strip()
+          if not channel:
+            sys.exit(0)
+          for fname in ("configs/mtproto", "configs/mtproto(top100)"):
+            rewrite_file_channel_tags(Path(fname), channel)
+            print(f"Channel tag applied: {fname}")
+          PY
+
+      - name: Ensure .env exists for docker compose
+        run: touch .env
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker
+
+      - name: Reset Docker Hub auth (avoid stale credentials)
+        run: |
+          docker logout docker.io || true
+          docker logout https://index.docker.io/v1/ || true
+
+      - name: Build Docker image
+        run: docker compose build
+
+      - name: Filter MTProto by DOCKER_LOCATION_FILTER (geo)
+        env:
+          DOCKER_LOCATION_FILTER: RU
+        run: |
+          if [ ! -f "configs/mtproto" ] || [ ! -s "configs/mtproto" ]; then
+            echo "::warning::configs/mtproto empty or missing, skip MTProto geo filter"
+            : > configs/white-list_mtproto
+            : > "configs/white-list_mtproto(top100)"
+            exit 0
+          fi
+          python -m lib.filter_mtproto_by_country configs/mtproto \
+            --geo-cache-file configs/geoip_cache_mtproto.json \
+            --output-file configs/white-list_mtproto \
+            --output-top-file "configs/white-list_mtproto(top100)" \
+            --top-n "${{ env.MTPROTO_TOP_N }}"
+
+      - name: Fix permissions on Docker output (white-list_mtproto)
+        run: |
+          if [ -f "configs/white-list_mtproto" ]; then sudo chown "$(whoami):$(id -gn)" configs/white-list_mtproto; fi
+          if [ -f "configs/white-list_mtproto(top100)" ]; then sudo chown "$(whoami):$(id -gn)" "configs/white-list_mtproto(top100)"; fi
+          if [ ! -f "configs/white-list_mtproto" ]; then touch configs/white-list_mtproto; fi
+          if [ ! -f "configs/white-list_mtproto(top100)" ]; then touch "configs/white-list_mtproto(top100)"; fi
+
+      - name: Add channel tag (MTProto + SOCKS) to white-list_mtproto
+        env:
+          MTPROTO_CHANNEL_TAG: ${{ env.MTPROTO_CHANNEL_TAG }}
+        run: |
+          if [ -z "$MTPROTO_CHANNEL_TAG" ]; then
+            echo "::warning::MTPROTO_CHANNEL_TAG is empty, skip white-list channel tagging."
+            exit 0
+          fi
+          python - << 'PY'
+          import os
+          import sys
+          from pathlib import Path
+
+          from lib.telegram_proxy_merge import rewrite_file_channel_tags
+
+          channel = os.environ.get("MTPROTO_CHANNEL_TAG", "").strip()
+          if not channel:
+            sys.exit(0)
+          for fname in ("configs/white-list_mtproto", "configs/white-list_mtproto(top100)"):
+            rewrite_file_channel_tags(Path(fname), channel)
+            print(f"Channel tag applied: {fname}")
+          PY
+
+      - name: Update last-updated.json for MTProto
+        run: |
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          C_MT=$(wc -l < configs/mtproto 2>/dev/null || echo 0)
+          C_MT100=$(wc -l < "configs/mtproto(top100)" 2>/dev/null || echo 0)
+          C_WL=$(wc -l < configs/white-list_mtproto 2>/dev/null || echo 0)
+          C_WL100=$(wc -l < "configs/white-list_mtproto(top100)" 2>/dev/null || echo 0)
+          OLD=$(cat configs/last-updated.json 2>/dev/null || echo '{}')
+          echo "$OLD" | jq -c --arg t "$NOW" \
+            --argjson c_mt "$C_MT" --argjson c_mt100 "$C_MT100" \
+            --argjson c_wl "$C_WL" --argjson c_wl100 "$C_WL100" \
+            'del(.["configs/tg_socks"], .["configs/tg_socks(top100)"], .["configs/white-list_tg_socks"], .["configs/white-list_tg_socks(top100)"]) |
+             .["configs/mtproto"] = {updated: $t, count: $c_mt} |
+             .["configs/mtproto(top100)"] = {updated: $t, count: $c_mt100} |
+             .["configs/white-list_mtproto"] = {updated: $t, count: $c_wl} |
+             .["configs/white-list_mtproto(top100)"] = {updated: $t, count: $c_wl100}' \
+            > configs/last-updated.json
+
+      - name: Commit and push MTProto results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          python tools/encode_configs_base64.py \
+            configs/mtproto \
+            "configs/mtproto(top100)" \
+            configs/white-list_mtproto \
+            "configs/white-list_mtproto(top100)"
+          for f in configs/mtproto "configs/mtproto(top100)" configs/white-list_mtproto "configs/white-list_mtproto(top100)"; do
+            [ -f "$f" ] && git add "configs/base64/$(basename "$f")"
+          done
+          for f in configs/mtproto "configs/mtproto(top100)" configs/white-list_mtproto "configs/white-list_mtproto(top100)" configs/last-updated.json; do
+            [ -f "$f" ] && git add "$f"
+          done
+          git rm -f --ignore-unmatch configs/tg_socks "configs/tg_socks(top100)" configs/white-list_tg_socks "configs/white-list_tg_socks(top100)" 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "update mtproto [automated]"
+            git pull --no-rebase origin "${{ github.ref_name }}" || true
+            if [ -f .git/MERGE_HEAD ]; then
+              for f in configs/mtproto "configs/mtproto(top100)" configs/white-list_mtproto "configs/white-list_mtproto(top100)"; do
+                if git diff --name-only --diff-filter=U | grep -qF "$f"; then
+                  git checkout --ours "$f"
+                  git add "$f"
+                fi
+              done
+              python tools/encode_configs_base64.py \
+                configs/mtproto \
+                "configs/mtproto(top100)" \
+                configs/white-list_mtproto \
+                "configs/white-list_mtproto(top100)"
+              for f in configs/mtproto "configs/mtproto(top100)" configs/white-list_mtproto "configs/white-list_mtproto(top100)"; do
+                [ -f "$f" ] && git add "configs/base64/$(basename "$f")"
+              done
+              # После разрешения конфигов всегда пересобираем last-updated.json по текущим счётчикам (сохраняем остальные ключи)
+              if grep -q '^<<<<<<<' configs/last-updated.json 2>/dev/null; then
+                git checkout --theirs configs/last-updated.json
+              fi
+              OLD=$(cat configs/last-updated.json 2>/dev/null || echo '{}')
+              NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+              C_MT=$(wc -l < configs/mtproto 2>/dev/null || echo 0)
+              C_MT100=$(wc -l < "configs/mtproto(top100)" 2>/dev/null || echo 0)
+              C_WL=$(wc -l < configs/white-list_mtproto 2>/dev/null || echo 0)
+              C_WL100=$(wc -l < "configs/white-list_mtproto(top100)" 2>/dev/null || echo 0)
+              echo "$OLD" | jq -c --arg t "$NOW" \
+                --argjson c_mt "$C_MT" --argjson c_mt100 "$C_MT100" \
+                --argjson c_wl "$C_WL" --argjson c_wl100 "$C_WL100" \
+                'del(.["configs/tg_socks"], .["configs/tg_socks(top100)"], .["configs/white-list_tg_socks"], .["configs/white-list_tg_socks(top100)"]) |
+                 .["configs/mtproto"] = {updated: $t, count: $c_mt} |
+                 .["configs/mtproto(top100)"] = {updated: $t, count: $c_mt100} |
+                 .["configs/white-list_mtproto"] = {updated: $t, count: $c_wl} |
+                 .["configs/white-list_mtproto(top100)"] = {updated: $t, count: $c_wl100}' \
+                > configs/last-updated.json
+              git add configs/last-updated.json
+              git commit -m "Merge remote; resolve mtproto conflicts"
+            fi
+            git push
+          else
+            echo "MTProto results unchanged, skip push"
+          fi
+
+      - name: Prepare Telegram stats
+        id: telegram_stats
+        run: |
+          K_IN=0
+          [ -f mtproto_all.txt ] && K_IN=$(wc -l < mtproto_all.txt)
+          K_OUT=0
+          [ -f configs/mtproto ] && K_OUT=$((K_OUT + $(wc -l < configs/mtproto)))
+          END=$(date -u +%s)
+          START=${{ steps.start.outputs.started_at }}
+          DURATION_SEC=$(( END - START ))
+          printf -v DURATION "%d:%02d" $(( DURATION_SEC / 60 )) $(( DURATION_SEC % 60 ))
+          echo "workflow_name=MTProto check" >> $GITHUB_OUTPUT
+          echo "keys_in=$K_IN" >> $GITHUB_OUTPUT
+          echo "keys_out=$K_OUT" >> $GITHUB_OUTPUT
+          echo "duration=$DURATION" >> $GITHUB_OUTPUT
+
+  notify-telegram:
+    needs: mtproto-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Send workflow stats to Telegram
+        uses: ./.github/actions/telegram-workflow-stats
+        with:
+          workflow_name: ${{ needs.mtproto-check.outputs.stats_workflow_name }}
+          keys_in: ${{ needs.mtproto-check.outputs.stats_keys_in }}
+          keys_out: ${{ needs.mtproto-check.outputs.stats_keys_out }}
+          duration: ${{ needs.mtproto-check.outputs.stats_duration }}
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          extra_section: |
+            Обновлённые MTProto + SOCKS в общих списках:
+
+            [mtproto (FULL)](https://whiteprime.github.io/xraycheck/configs/mtproto)
+            [mtproto (TOP 100)](https://whiteprime.github.io/xraycheck/configs/mtproto%28top100%29)
+
+            White List:
+
+            [white-list_mtproto (FULL)](https://whiteprime.github.io/xraycheck/configs/white-list_mtproto)
+            [white-list_mtproto (TOP 100)](https://whiteprime.github.io/xraycheck/configs/white-list_mtproto%28top100%29)

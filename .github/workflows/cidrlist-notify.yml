@@ -1,0 +1,214 @@
+name: CIDR list change notify
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - cidrlist
+  workflow_run:
+    workflows:
+      - "Daily check"
+      - "Actualize notworkers"
+      - "Update tools"
+      - "Daily DOCKER check"
+      - "Speedtest"
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: xraycheck-cidrlist-notify
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    # При workflow_run - только если workflow успешно завершился (тогда есть коммит с cidrlist)
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository (need git history for diff)
+        uses: actions/checkout@v4
+        with:
+          # При workflow_run - текущий main (уже с коммитом, который запушен другим workflow); при push - коммит пуша
+          ref: ${{ github.event_name == 'workflow_run' && github.ref_name || github.sha }}
+          fetch-depth: 0
+
+      - name: Build CIDR diff message
+        id: diff
+        env:
+          USE_HEAD_FOR_DIFF: ${{ github.event_name == 'workflow_run' }}
+          # При workflow_run: коммит, на котором тот workflow запустился; если HEAD=HEAD_SHA_OF_RUN - пуш не было
+          HEAD_SHA_OF_RUN: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${USE_HEAD_FOR_DIFF}" = "true" ]; then
+            CURRENT_HEAD="$(git rev-parse HEAD)"
+            if [ -n "${HEAD_SHA_OF_RUN:-}" ] && [ "${CURRENT_HEAD}" = "${HEAD_SHA_OF_RUN}" ]; then
+              echo "Workflow did not push (HEAD unchanged), skip"
+              echo "has_changes=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            COMMIT_SHA="${CURRENT_HEAD}"
+            # Один workflow может сделать несколько пушей (например Speedtest: сначала cidrlist/tools,
+            # затем configs). HEAD^..HEAD тогда не видит изменение cidrlist - оно в предыдущем коммите.
+            # Сравниваем с head_sha запуска того workflow (начало main) → конец main после всех пушей.
+            if [ -n "${HEAD_SHA_OF_RUN:-}" ] && git merge-base --is-ancestor "${HEAD_SHA_OF_RUN}" "${CURRENT_HEAD}" 2>/dev/null; then
+              BEFORE_SHA="${HEAD_SHA_OF_RUN}"
+            else
+              if git rev-parse HEAD^ >/dev/null 2>&1; then
+                BEFORE_SHA="$(git rev-parse HEAD^)"
+              else
+                echo "No parent commit to diff against, skip"
+                echo "has_changes=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+          else
+            COMMIT_SHA="${GITHUB_SHA}"
+            BEFORE_SHA="${{ github.event.before }}"
+            if [ -z "${BEFORE_SHA}" ] || [ "${BEFORE_SHA}" = "0000000000000000000000000000000000000000" ]; then
+              if git rev-parse "${GITHUB_SHA}^" >/dev/null 2>&1; then
+                BEFORE_SHA="$(git rev-parse "${GITHUB_SHA}^")"
+              else
+                echo "No parent commit to diff against, skip"
+                echo "has_changes=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+          fi
+
+          if ! git diff --name-only "${BEFORE_SHA}" "${COMMIT_SHA}" -- | grep -qx "cidrlist"; then
+            echo "cidrlist not changed in this commit range, skip"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          DIFF="$(git diff --unified=0 "${BEFORE_SHA}" "${COMMIT_SHA}" -- cidrlist || true)"
+          REMOVED_LINES="$(printf '%s\n' "${DIFF}" | grep -E '^-{1}[^-]' | sed 's/^-//' || true)"
+          ADDED_LINES="$(printf '%s\n' "${DIFF}" | grep -E '^\\+{1}[^+]' | sed 's/^+//' || true)"
+
+          # Убираем пустые строки
+          REMOVED_LINES="$(printf '%s\n' "${REMOVED_LINES}" | sed '/^[[:space:]]*$/d' || true)"
+          ADDED_LINES="$(printf '%s\n' "${ADDED_LINES}" | sed '/^[[:space:]]*$/d' || true)"
+
+          if [ -z "${REMOVED_LINES}" ] && [ -z "${ADDED_LINES}" ]; then
+            echo "No added/removed lines detected, skip"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          html_escape() {
+            # Escape minimal set for Telegram HTML parse_mode.
+            # CIDR lines should not contain these, but we keep it safe.
+            printf '%s' "$1" | sed -e 's/&/&amp;/g' -e 's/</&lt;/g' -e 's/>/&gt;/g'
+          }
+
+          join_with_semicolon_space() {
+            # Join lines into a single string separated by "; "
+            awk 'NR==1{printf "%s",$0; next}{printf "; %s",$0} END{print ""}'
+          }
+
+          format_lines_as_pre() {
+            local input_lines="$1"
+            local max_items=120
+            local total_items
+            total_items="$(printf '%s\n' "${input_lines}" | wc -l | tr -d ' ')"
+
+            if [ "${total_items}" -le "${max_items}" ]; then
+              # В одну строку, разделитель "; " и моноширинный блок
+              local joined
+              joined="$(printf '%s\n' "${input_lines}" | join_with_semicolon_space)"
+              joined="$(html_escape "${joined}")"
+              printf '<pre>%s</pre>\n' "${joined}"
+              return 0
+            fi
+
+            local head_items
+            head_items="$(printf '%s\n' "${input_lines}" | head -n "${max_items}")"
+            local remaining=$(( total_items - max_items ))
+            local joined
+            joined="$(printf '%s\n' "${head_items}" | join_with_semicolon_space)"
+            joined="$(html_escape "${joined}")"
+            printf '<pre>%s</pre>\n<code>... и ещё %s строк(и)</code>\n' "${joined}" "${remaining}"
+          }
+
+          REMOVED_BLOCK=""
+          if [ -n "${REMOVED_LINES}" ]; then
+            REMOVED_BLOCK="$(format_lines_as_pre "${REMOVED_LINES}")"
+          else
+            REMOVED_BLOCK="<code>(нет)</code>"
+          fi
+
+          ADDED_BLOCK=""
+          if [ -n "${ADDED_LINES}" ]; then
+            ADDED_BLOCK="$(format_lines_as_pre "${ADDED_LINES}")"
+          else
+            ADDED_BLOCK="<code>(нет)</code>"
+          fi
+
+          MESSAGE="$(printf '%s\n' \
+            "<b>Изменение CIDR листа:</b>" \
+            "" \
+            "<b>Удалено:</b>")"
+          MESSAGE="${MESSAGE}"$'\n'"${REMOVED_BLOCK}"$'\n\n'"<b>Добавлено:</b>"$'\n'"${ADDED_BLOCK}"
+
+          # Telegram message limit guard.
+          # Важно: не делаем head -c по HTML, чтобы не разорвать теги/сущности.
+          if [ "${#MESSAGE}" -gt 3900 ]; then
+            removed_cnt="$(printf '%s\n' "${REMOVED_LINES}" | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' ')"
+            added_cnt="$(printf '%s\n' "${ADDED_LINES}" | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' ')"
+            MESSAGE="$(printf '%s\n' \
+              "<b>Изменение CIDR листа:</b>" \
+              "" \
+              "<b>Удалено:</b> <code>${removed_cnt}</code>" \
+              "<b>Добавлено:</b> <code>${added_cnt}</code>" \
+              "" \
+              "<code>(список слишком длинный, см. кнопку CIDR List)</code>")"
+          fi
+
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          # GITHUB_OUTPUT multiline: name<<DELIM / value / DELIM - без кавычек вокруг DELIM,
+          # иначе парсер ищет закрытие 'EOF' и не находит строку EOF.
+          DELIM="CIDRLIST_NOTIFY_MSG"
+          {
+            echo "message<<${DELIM}"
+            printf '%s\n' "${MESSAGE}"
+            echo "${DELIM}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Send CIDR change notification to Telegram
+        if: steps.diff.outputs.has_changes == 'true'
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MESSAGE: ${{ steps.diff.outputs.message }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${TELEGRAM_BOT_TOKEN}" ] || [ -z "${TELEGRAM_CHAT_ID}" ]; then
+            echo "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set, skip sending"
+            exit 0
+          fi
+
+          PAYLOAD="$(jq -n \
+            --arg chat_id "${TELEGRAM_CHAT_ID}" \
+            --arg text "${MESSAGE}" \
+            '{chat_id: $chat_id, parse_mode: "HTML", text: $text,
+              reply_markup: {inline_keyboard: [[{text: "CIDR List", url: "https://github.com/WhitePrime/xraycheck/blob/main/cidrlist"}]]}
+            }')"
+
+          RESPONSE="$(curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "${PAYLOAD}")"
+
+          MESSAGE_ID="$(echo "${RESPONSE}" | jq -r '.result.message_id // empty')"
+          if [ -n "${MESSAGE_ID}" ]; then
+            curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/pinChatMessage" \
+              -H "Content-Type: application/json" \
+              -d "{\"chat_id\": \"${TELEGRAM_CHAT_ID}\", \"message_id\": ${MESSAGE_ID}}" || echo "::warning::Could not pin message (bot may need 'Pin messages' permission)"
+          fi
+

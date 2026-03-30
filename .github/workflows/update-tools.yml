@@ -1,0 +1,248 @@
+# Устанавливает или обновляет бинарники Xray и Hysteria в tools/ и файлы cidrlist и sni в корне.
+# tools: если нет в репо - ставит (latest или фикс. версия при 403); при rate limit оставляет текущие.
+# cidrlist: обновляется по ссылке из vars.CIDR_WHITELIST_URL только при отличии содержимого; первая строка - дата/время обновления (# Updated: ... UTC).
+# sni: список допустимых SNI для lib.filter_docker_configs; источник - vars.SNI_FILE_URL или по умолчанию whitelist upstream.
+# Результат коммитится в репо; Docker-workflow используют tools/, cidrlist и sni без загрузки.
+
+name: Update tools
+
+on:
+  schedule:
+    # Раз в неделю (воскресенье 03:30 UTC)
+    - cron: '30 3 * * 0'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  update-binaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    outputs:
+      stats_workflow_name: ${{ steps.telegram_stats.outputs.workflow_name }}
+      stats_duration: ${{ steps.telegram_stats.outputs.duration }}
+      stats_cidrlist_line: ${{ steps.telegram_stats.outputs.cidrlist_line }}
+      stats_sni_line: ${{ steps.telegram_stats.outputs.sni_line }}
+      stats_extra_section: ${{ steps.telegram_stats.outputs.extra_section }}
+    steps:
+      - name: Record start time
+        id: start
+        run: echo "started_at=$(date -u +%s)" >> $GITHUB_OUTPUT
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update cidrlist from CIDR_WHITELIST_URL (if changed)
+        id: update_cidrlist
+        if: vars.CIDR_WHITELIST_URL != ''
+        env:
+          CIDR_WHITELIST_URL: ${{ vars.CIDR_WHITELIST_URL }}
+        run: |
+          set -e
+          LINES_BEFORE=$(wc -l < cidrlist 2>/dev/null || echo 0)
+          echo "Fetching CIDR list from CIDR_WHITELIST_URL..."
+          content=$(curl -sLf --connect-timeout 15 --max-time 30 "$CIDR_WHITELIST_URL") || { echo "::warning::Failed to fetch CIDR list, cidrlist unchanged"; echo "cidrlist_updated=false" >> $GITHUB_OUTPUT; exit 0; }
+          echo "$content" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*#' | sort > /tmp/remote_cidr
+          if [ ! -s /tmp/remote_cidr ]; then
+            echo "::warning::Remote CIDR list is empty (no non-comment lines), cidrlist unchanged"
+            echo "cidrlist_updated=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          local_body=""
+          if [ -f cidrlist ]; then
+            first=$(head -n 1 cidrlist)
+            if [ "${first#\#}" != "$first" ]; then
+              local_body=$(tail -n +2 cidrlist)
+            else
+              local_body=$(cat cidrlist)
+            fi
+          fi
+          echo "$local_body" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*#' | sort > /tmp/local_cidr
+          if diff -q /tmp/local_cidr /tmp/remote_cidr >/dev/null 2>&1; then
+            echo "cidrlist unchanged (same content as remote), skip"
+            echo "cidrlist_updated=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "# Updated: $(date -u '+%Y-%m-%d %H:%M:%S') UTC" > cidrlist
+          echo "$content" >> cidrlist
+          LINES_AFTER=$(wc -l < cidrlist)
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add cidrlist
+          git commit -m "chore: update cidrlist [automated]"
+          if ! git pull --rebase origin main; then
+            echo "::warning::git pull --rebase failed, skipping push"
+            git rebase --abort || true
+            echo "cidrlist_updated=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          if git push; then
+            echo "cidrlist_updated=true" >> $GITHUB_OUTPUT
+            echo "cidrlist_lines_before=$LINES_BEFORE" >> $GITHUB_OUTPUT
+            echo "cidrlist_lines_after=$LINES_AFTER" >> $GITHUB_OUTPUT
+          else
+            echo "::warning::git push failed, cidrlist commit only local"
+            echo "cidrlist_updated=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update sni from SNI_FILE_URL (if changed)
+        id: update_sni
+        env:
+          SNI_FILE_URL: ${{ vars.SNI_FILE_URL || 'https://raw.githubusercontent.com/hxehex/russia-mobile-internet-whitelist/refs/heads/main/whitelist.txt' }}
+        run: |
+          set -e
+          LINES_BEFORE=$(wc -l < sni 2>/dev/null || echo 0)
+          echo "Fetching SNI whitelist from SNI_FILE_URL..."
+          content=$(curl -sLf --connect-timeout 15 --max-time 30 "$SNI_FILE_URL") || { echo "::warning::Failed to fetch SNI list, sni unchanged"; echo "sni_updated=false" >> $GITHUB_OUTPUT; exit 0; }
+          echo "$content" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*#' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | LC_ALL=C sort -f > /tmp/remote_sni
+          if [ ! -s /tmp/remote_sni ]; then
+            echo "::warning::Remote SNI list is empty (no non-comment lines), sni unchanged"
+            echo "sni_updated=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          local_body=""
+          if [ -f sni ]; then
+            first=$(head -n 1 sni)
+            if [ "${first#\#}" != "$first" ]; then
+              local_body=$(tail -n +2 sni)
+            else
+              local_body=$(cat sni)
+            fi
+          fi
+          echo "$local_body" | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*#' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | LC_ALL=C sort -f > /tmp/local_sni
+          if diff -q /tmp/local_sni /tmp/remote_sni >/dev/null 2>&1; then
+            echo "sni unchanged (same content as remote), skip"
+            echo "sni_updated=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "# Updated: $(date -u '+%Y-%m-%d %H:%M:%S') UTC" > sni
+          echo "$content" >> sni
+          LINES_AFTER=$(wc -l < sni)
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add sni
+          git commit -m "chore: update sni [automated]"
+          if ! git pull --rebase origin main; then
+            echo "::warning::git pull --rebase failed, skipping push"
+            git rebase --abort || true
+            echo "sni_updated=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          if git push; then
+            echo "sni_updated=true" >> $GITHUB_OUTPUT
+            echo "sni_lines_before=$LINES_BEFORE" >> $GITHUB_OUTPUT
+            echo "sni_lines_after=$LINES_AFTER" >> $GITHUB_OUTPUT
+          else
+            echo "::warning::git push failed, sni commit only local"
+            echo "sni_updated=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Record tools versions (before)
+        id: versions_before
+        run: |
+          XRAY_VER=""
+          HYST_VER=""
+          [ -f tools/xray ] && XRAY_VER=$(./tools/xray version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          [ -f tools/hysteria ] && HYST_VER=$(./tools/hysteria version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          echo "xray=$XRAY_VER" >> $GITHUB_OUTPUT
+          echo "hysteria=$HYST_VER" >> $GITHUB_OUTPUT
+
+      - name: Setup Xray and Hysteria (install or update)
+        run: bash tools/update-binaries.sh
+
+      - name: Commit and push if tools changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git status --porcelain | grep -q ' tools/'; then
+            git add tools/xray tools/hysteria 2>/dev/null || true
+            if git diff --cached --quiet; then
+              echo "No changes to commit"
+            else
+              git commit -m "chore(tools): update Xray and Hysteria binaries [automated]"
+              git push
+            fi
+          else
+            echo "tools/ unchanged, skip push"
+          fi
+
+      - name: Prepare Telegram stats
+        id: telegram_stats
+        run: |
+          END=$(date -u +%s)
+          START=${{ steps.start.outputs.started_at }}
+          DURATION_SEC=$(( END - START ))
+          printf -v DURATION "%d:%02d" $(( DURATION_SEC / 60 )) $(( DURATION_SEC % 60 ))
+          echo "workflow_name=Update tools" >> $GITHUB_OUTPUT
+          echo "duration=$DURATION" >> $GITHUB_OUTPUT
+          CIDRLIST_LINE=""
+          if [ "${{ steps.update_cidrlist.outputs.cidrlist_updated }}" = "true" ]; then
+            B="${{ steps.update_cidrlist.outputs.cidrlist_lines_before }}"
+            A="${{ steps.update_cidrlist.outputs.cidrlist_lines_after }}"
+            CIDRLIST_LINE="строк ${B} → ${A}"
+          fi
+          echo "cidrlist_line=$CIDRLIST_LINE" >> $GITHUB_OUTPUT
+          SNILIST_LINE=""
+          if [ "${{ steps.update_sni.outputs.sni_updated }}" = "true" ]; then
+            SB="${{ steps.update_sni.outputs.sni_lines_before }}"
+            SA="${{ steps.update_sni.outputs.sni_lines_after }}"
+            SNILIST_LINE="строк ${SB} → ${SA}"
+          fi
+          echo "sni_line=$SNILIST_LINE" >> $GITHUB_OUTPUT
+          XRAY_AFTER=""
+          HYST_AFTER=""
+          [ -f tools/xray ] && XRAY_AFTER=$(./tools/xray version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          [ -f tools/hysteria ] && HYST_AFTER=$(./tools/hysteria version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          XRAY_BEFORE="${{ steps.versions_before.outputs.xray }}"
+          HYST_BEFORE="${{ steps.versions_before.outputs.hysteria }}"
+          if [ -n "$XRAY_AFTER" ]; then
+            if [ -n "$XRAY_BEFORE" ] && [ "$XRAY_BEFORE" != "$XRAY_AFTER" ]; then
+              XRAY_LINE="Xray: обновлена Xray-core v${XRAY_BEFORE} → v${XRAY_AFTER}"
+            else
+              XRAY_LINE="Xray: без изменений (v${XRAY_AFTER})"
+            fi
+          else
+            XRAY_LINE=""
+          fi
+          if [ -n "$HYST_AFTER" ]; then
+            if [ -n "$HYST_BEFORE" ] && [ "$HYST_BEFORE" != "$HYST_AFTER" ]; then
+              HYST_LINE="Hysteria: обновлена app/v${HYST_BEFORE} → app/v${HYST_AFTER}"
+            else
+              HYST_LINE="Hysteria: без изменений (app/v${HYST_AFTER})"
+            fi
+          else
+            HYST_LINE=""
+          fi
+          EXTRA=""
+          [ -n "$XRAY_LINE" ] && EXTRA="$XRAY_LINE"
+          [ -n "$HYST_LINE" ] && { [ -n "$EXTRA" ] && EXTRA="$EXTRA"$'\n'"$HYST_LINE" || EXTRA="$HYST_LINE"; }
+          if [ -n "$EXTRA" ]; then
+            { echo "extra_section<<EOFMARKER"; printf '%s' "$EXTRA"; echo ""; echo "EOFMARKER"; } >> $GITHUB_OUTPUT
+          else
+            echo "extra_section=" >> $GITHUB_OUTPUT
+          fi
+
+  notify-telegram:
+    needs: update-binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Send workflow stats to Telegram
+        uses: ./.github/actions/telegram-workflow-stats
+        with:
+          workflow_name: ${{ needs.update-binaries.outputs.stats_workflow_name }}
+          keys_in: ''
+          keys_out: ''
+          duration: ${{ needs.update-binaries.outputs.stats_duration }}
+          cidrlist_line: ${{ needs.update-binaries.outputs.stats_cidrlist_line }}
+          sni_line: ${{ needs.update-binaries.outputs.stats_sni_line }}
+          extra_section: ${{ needs.update-binaries.outputs.stats_extra_section }}
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
